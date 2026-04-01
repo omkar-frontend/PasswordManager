@@ -2,10 +2,12 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Layout from './Layout/Layout.tsx'
-import Home from './Pages/Home.tsx'
 import Login from './Pages/Login.tsx'
 import Signup from './Pages/Signup.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
+import Categories from './Pages/Categories.tsx'
+import './lib/axiosAuth'
+import Passwords from './Pages/Passwords.tsx'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -13,7 +15,8 @@ const router = createBrowserRouter(
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/" element={<Layout />}>
-        <Route index element={<Home />} />
+        <Route index element={<Categories />} />
+        <Route path="/category/:id" element={<Passwords />} />
       </Route>
     </>
 ))
