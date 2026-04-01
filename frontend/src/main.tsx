@@ -1,13 +1,13 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
-import Layout from './Layout/Layout.tsx'
-import Login from './Pages/Login.tsx'
-import Signup from './Pages/Signup.tsx'
+import Layout from './layout/Layout.tsx'
+import Login from './pages/Login.tsx'
+import Signup from './pages/Signup.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
-import Categories from './Pages/Categories.tsx'
+import Categories from './pages/Categories.tsx'
 import './lib/axiosAuth'
-import Passwords from './Pages/Passwords.tsx'
+import CategoryItems from './pages/CategoryItems.tsx'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -16,7 +16,7 @@ const router = createBrowserRouter(
       <Route path="/signup" element={<Signup />} />
       <Route path="/" element={<Layout />}>
         <Route index element={<Categories />} />
-        <Route path="/category/:id" element={<Passwords />} />
+        <Route path="/category/:id" element={<CategoryItems />} />
       </Route>
     </>
 ))

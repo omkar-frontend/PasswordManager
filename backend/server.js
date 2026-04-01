@@ -115,8 +115,66 @@ app.get("/category-items", async (req, res) => {
   res.json(data ?? []);
 });
 
+app.get("/user-security", async (req, res) => {
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const { data, error } = await userSupabase
+    .schema("shield_schema")
+    .from("user_security")
+    .select("*")
+    .eq("user_id", req.user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase Error:", error);
+    return res.status(500).json({ error });
+  }
+
+  res.json(data ?? null);
+});
+
+app.post("/user-security", async (req, res) => {
+  const { salt, check_cipher, check_iv } = req.body ?? {};
+  if (
+    typeof salt !== "string" ||
+    !salt.trim() ||
+    typeof check_cipher !== "string" ||
+    !check_cipher.trim() ||
+    typeof check_iv !== "string" ||
+    !check_iv.trim()
+  ) {
+    return res.status(400).json({ error: "salt, check_cipher, and check_iv are required" });
+  }
+
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const { data, error } = await userSupabase
+    .schema("shield_schema")
+    .from("user_security")
+    .insert({
+      user_id: req.user.id,
+      salt: salt.trim(),
+      check_cipher: check_cipher.trim(),
+      check_iv: check_iv.trim(),
+    })
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase Error:", error);
+    if (String(error.code) === "23505") {
+      return res.status(409).json({ error: "Vault already configured for this user" });
+    }
+    return res.status(500).json({ error });
+  }
+
+  res.json(data);
+});
+
 app.post("/category-items", async (req, res) => {
-  const { category_id, title, password, description } = req.body ?? {};
+  const { category_id, title, password_cipher, password_iv, description } = req.body ?? {};
 
   if (!category_id || typeof category_id !== "string") {
     return res.status(400).json({ error: "category_id is required" });
@@ -128,7 +186,14 @@ app.post("/category-items", async (req, res) => {
   const userSupabase = createUserClient(req, res);
   if (!userSupabase) return;
 
-  const pwd = password != null && String(password).trim() !== "" ? String(password).trim() : null;
+  const hasCipher =
+    password_cipher != null &&
+    String(password_cipher).trim() !== "" &&
+    password_iv != null &&
+    String(password_iv).trim() !== "";
+
+  const pc = hasCipher ? String(password_cipher).trim() : null;
+  const piv = hasCipher ? String(password_iv).trim() : null;
   const desc =
     description != null && String(description).trim() !== "" ? String(description).trim() : null;
 
@@ -138,7 +203,8 @@ app.post("/category-items", async (req, res) => {
     .insert({
       category_id,
       title: title.trim(),
-      password: pwd,
+      password_cipher: pc,
+      password_iv: piv,
       description: desc,
     })
     .select();
@@ -146,6 +212,65 @@ app.post("/category-items", async (req, res) => {
   if (error) {
     console.error("Supabase Error:", error);
     return res.status(500).json({ error });
+  }
+  res.json(data);
+});
+
+app.patch("/category-items/:shieldItemId", async (req, res) => {
+  const { shieldItemId } = req.params;
+  if (!shieldItemId || typeof shieldItemId !== "string" || !shieldItemId.trim()) {
+    return res.status(400).json({ error: "shield_item_id is required" });
+  }
+
+  const { title, password_cipher, password_iv, description } = req.body ?? {};
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const updates = {};
+
+  if (title !== undefined) {
+    if (typeof title !== "string" || !title.trim()) {
+      return res.status(400).json({ error: "title cannot be empty" });
+    }
+    updates.title = title.trim();
+  }
+
+  if (description !== undefined) {
+    updates.description =
+      description != null && String(description).trim() !== ""
+        ? String(description).trim()
+        : null;
+  }
+
+  const hasCipher =
+    password_cipher != null &&
+    String(password_cipher).trim() !== "" &&
+    password_iv != null &&
+    String(password_iv).trim() !== "";
+
+  if (hasCipher) {
+    updates.password_cipher = String(password_cipher).trim();
+    updates.password_iv = String(password_iv).trim();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: "no fields to update" });
+  }
+
+  const { data, error } = await userSupabase
+    .schema("shield_schema")
+    .from("category_items")
+    .update(updates)
+    .eq("shield_item_id", shieldItemId.trim())
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase Error:", error);
+    return res.status(500).json({ error });
+  }
+  if (!data) {
+    return res.status(404).json({ error: "item not found" });
   }
   res.json(data);
 });

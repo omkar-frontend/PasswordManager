@@ -81,7 +81,7 @@ export default function Categories() {
                   <div
                     className="flex flex-col gap-2 hover:border-violet-900"
                     key={cid}
-                    onClick={() => navigate(`/category/${cid}`)}
+                    onClick={() => navigate(`/category/${cid}`, { state: { categoryName: category.category_name } })}
                   >
                     <p className="text-theme-text">{category.category_name}</p>
                   </div>

@@ -4,19 +4,22 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "../Components/ui/popover"
+} from "./ui/popover"
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../context/AuthContext";
+import { useVault } from "../context/VaultContext";
 
 export default function Header() {
 
   const navigate = useNavigate();
   const { user, setUser, setSession } = useAuth();
+  const { lockVault } = useVault();
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) console.log(error);
     else {
+      lockVault(user?.id);
       setSession(null);
       setUser(null);
       navigate("/login", { replace: true });
