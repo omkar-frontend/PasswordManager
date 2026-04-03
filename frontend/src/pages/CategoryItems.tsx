@@ -7,7 +7,7 @@ import { decrypt } from "../crypto/decrypt";
 import { useVault } from "../context/VaultContext";
 
 type CategoryItem = {
-  shield_item_id: string;
+  category_item_id: string;
   category_id?: string;
   title?: string | null;
   description?: string | null;
@@ -175,8 +175,8 @@ export default function CategoryItems() {
           body.password_cipher = password_cipher;
           body.password_iv = password_iv;
         }
-        await axios.patch(
-          `${import.meta.env.VITE_BACKEND_URL}/category-items/${editingItem.shield_item_id}`,
+        await axios.put(
+          `${import.meta.env.VITE_BACKEND_URL}/category-items/${editingItem.category_item_id}`,
           body
         );
       } else {
@@ -225,7 +225,7 @@ export default function CategoryItems() {
               <ul className="grid lg:grid-cols-4 md:grid-cols-2 grid-cols-1 gap-3">
                 {shieldItems.map((item) => (
                   <li
-                    key={item.shield_item_id}
+                    key={item.category_item_id}
                     className="rounded-lg border border-neutral-800 p-3 text-theme-text"
                   >
                     <div className="flex items-start justify-between gap-2">

@@ -64,12 +64,41 @@ app.get("/categories", async (req, res) => {
   const userSupabase = createUserClient(req, res);
   if (!userSupabase) return;
 
-  const { data, error } = await userSupabase.schema("shield_schema").from("categories").select("*");
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
+  const { data: categories, error: catError } = await userSupabase
+    .schema("shield_schema")
+    .from("categories")
+    .select("*");
+
+  if (catError) {
+    console.error("Supabase Error:", catError);
+    return res.status(500).json({ error: catError });
   }
-  res.json(data);
+
+  const { data: itemRows, error: itemError } = await userSupabase
+    .schema("shield_schema")
+    .from("category_items")
+    .select("category_id");
+
+  if (itemError) {
+    console.error("Supabase Error:", itemError);
+    return res.status(500).json({ error: itemError });
+  }
+
+  const countByCategory = Object.create(null);
+  for (const row of itemRows ?? []) {
+    const id = row.category_id;
+    if (id) countByCategory[id] = (countByCategory[id] ?? 0) + 1;
+  }
+
+  const withCounts = (categories ?? []).map((c) => {
+    const cid = c.category_id;
+    return {
+      ...c,
+      item_count: cid != null ? (countByCategory[cid] ?? 0) : 0,
+    };
+  });
+
+  res.json(withCounts);
 });
 
 //  POST /categories
@@ -89,6 +118,38 @@ app.post("/categories", async (req, res) => {
   if (error) {
     console.error("Supabase Error:", error);
     return res.status(500).json({ error });
+  }
+  res.json(data);
+});
+
+app.put("/categories/:categoryId", async (req, res) => {
+  const { categoryId } = req.params;
+  if (!categoryId || typeof categoryId !== "string" || !categoryId.trim()) {
+    return res.status(400).json({ error: "category_id is required" });
+  }
+
+  const { name } = req.body ?? {};
+  if (typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ error: "name is required" });
+  }
+
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const { data, error } = await userSupabase
+    .schema("shield_schema")
+    .from("categories")
+    .update({ category_name: name.trim() })
+    .eq("category_id", categoryId.trim())
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase Error:", error);
+    return res.status(500).json({ error });
+  }
+  if (!data) {
+    return res.status(404).json({ error: "category not found" });
   }
   res.json(data);
 });
@@ -216,10 +277,10 @@ app.post("/category-items", async (req, res) => {
   res.json(data);
 });
 
-app.patch("/category-items/:shieldItemId", async (req, res) => {
-  const { shieldItemId } = req.params;
-  if (!shieldItemId || typeof shieldItemId !== "string" || !shieldItemId.trim()) {
-    return res.status(400).json({ error: "shield_item_id is required" });
+app.put("/category-items/:categoryItemId", async (req, res) => {
+  const { categoryItemId } = req.params;
+  if (!categoryItemId || typeof categoryItemId !== "string" || !categoryItemId.trim()) {
+    return res.status(400).json({ error: "category_item_id is required" });
   }
 
   const { title, password_cipher, password_iv, description } = req.body ?? {};
@@ -261,7 +322,7 @@ app.patch("/category-items/:shieldItemId", async (req, res) => {
     .schema("shield_schema")
     .from("category_items")
     .update(updates)
-    .eq("shield_item_id", shieldItemId.trim())
+    .eq("category_item_id", categoryItemId.trim())
     .select()
     .maybeSingle();
 

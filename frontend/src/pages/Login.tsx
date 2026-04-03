@@ -13,10 +13,9 @@ export default function Login() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      console.log(data);
-      if (data.session) navigate("/");
+      if (data.session) navigate("/app", { replace: true });
     });
-  }, []);
+  }, [navigate]);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -31,7 +30,7 @@ export default function Login() {
     else {
       setSession(data.session);
       setUser(data.user);
-      navigate("/");
+      navigate("/app", { replace: true });
     }
   };
 

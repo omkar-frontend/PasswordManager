@@ -7,6 +7,7 @@ import type { UserSecurityRow } from "../types/userSecurity";
 import { setupMasterPassword } from "../pages/SetupMaster";
 import { unlockVault } from "../pages/UnlockVault";
 import { saveVaultSessionKey, tryRestoreVaultFromSession } from "../lib/vaultSession";
+import { Eye, EyeOff, LockKeyholeOpen } from "lucide-react";
 
 function backendUrl(): string {
   const url = import.meta.env.VITE_BACKEND_URL;
@@ -26,6 +27,8 @@ export default function VaultGate() {
   const [setupConfirm, setSetupConfirm] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
   const [vaultSessionReady, setVaultSessionReady] = useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (authLoading || !session) return;
@@ -185,27 +188,39 @@ export default function VaultGate() {
   };
 
   return (
-    <div className="mx-auto flex max-w-md flex-col gap-4 p-6 text-theme-text">
-      <h1 className="text-xl font-semibold">Unlock vault</h1>
-      <p className="text-sm text-neutral-400">Enter your master password to continue.</p>
-      {formError ? <p className="text-sm text-red-500">{formError}</p> : null}
-      <input
-        type="password"
-        className="cmn-field-input"
-        placeholder="Master password"
-        value={unlockPassword}
-        onChange={(e) => setUnlockPassword(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && void submitUnlock()}
-        autoComplete="current-password"
-      />
-      <button
-        type="button"
-        className="button-theme"
-        disabled={busy}
-        onClick={() => void submitUnlock()}
-      >
-        {busy ? "Unlocking…" : "Unlock"}
-      </button>
+    <div className="flex justify-center items-start pt-20 h-[calc(100vh-55px)] bg-theme-bg">
+      <div className="mx-auto flex max-w-md flex-col gap-4 p-6 text-theme-text items-center w-96">
+        <LockKeyholeOpen className="w-10 h-10 text-neutral-300 p-2.5 border border-neutral-700 rounded-lg" />
+        <p className="text-xl font-semibold">Unlock vault</p>
+        <p className="text-sm text-neutral-400">Enter your master password to continue.</p>
+        {formError ? <p className="text-sm text-red-500">{formError}</p> : null}
+        <div className="w-full relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            className="cmn-field-input w-full pr-10!"
+            placeholder="Master password"
+            value={unlockPassword}
+            onChange={(e) => setUnlockPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void submitUnlock()}
+            autoComplete="current-password"
+          />
+          {
+            showPassword ? (
+              <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(false)} />
+            ) : (
+              <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(true)} />
+            )
+          }
+        </div>
+        <button
+          type="button"
+          className="button-theme w-full text-center"
+          disabled={busy}
+          onClick={() => void submitUnlock()}
+        >
+          {busy ? "Unlocking…" : "Unlock"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -30,11 +30,9 @@ export async function tryRestoreVaultFromSession(
       false,
       ["encrypt", "decrypt"],
     );
-    const check = await decrypt(record.check_cipher, record.check_iv, key);
-    if (check !== "vault_check") {
-      clearVaultSessionKey(userId);
-      return null;
-    }
+    // `check_cipher` encrypts the master password; decrypt proves this key matches the vault.
+    // (Do not compare to `check_cipher` — that value is ciphertext, not plaintext.)
+    await decrypt(record.check_cipher, record.check_iv, key);
     return key;
   } catch {
     clearVaultSessionKey(userId);

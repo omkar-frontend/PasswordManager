@@ -13,7 +13,7 @@ function backendUrl(): string {
 export async function setupMasterPassword(password: string): Promise<CryptoKey> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await deriveKey(password, salt, true);
-  const { cipher, iv } = await encrypt("vault_check", key);
+  const { cipher, iv } = await encrypt(password, key);
 
   await axios.post(`${backendUrl()}/user-security`, {
     salt: toBase64(salt),

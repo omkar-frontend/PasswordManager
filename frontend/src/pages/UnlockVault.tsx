@@ -12,7 +12,7 @@ export async function unlockVault(
 
   try {
     const result = await decrypt(record.check_cipher, record.check_iv, key);
-    if (result === "vault_check") return key;
+    if (result === password) return key;
   } catch {
     throw new Error("Wrong password");
   }
