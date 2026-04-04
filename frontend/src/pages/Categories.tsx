@@ -3,7 +3,9 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
-import { Loader2, Pencil, Plus, X } from "lucide-react";
+import { EllipsisVertical, Loader2, Pencil, Plus, Trash, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import NoDataLottie from "@/components/NoDataLottie";
 
 type CategoryRow = {
   category_id?: string;
@@ -20,6 +22,8 @@ export default function Categories() {
   const [editingCategory, setEditingCategory] = useState<CategoryRow | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
+  const [deleteConfirmCategory, setDeleteConfirmCategory] = useState<CategoryRow | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 	const navigate = useNavigate();
   const { user, loading } = useAuth();
 
@@ -92,17 +96,45 @@ export default function Categories() {
 
 	useEffect(() => {
     fetchCategories();
-	  }, []);
+  }, []);
 
-	  useEffect(() => {
-      if (!loading && !user) navigate("/login", { replace: true });
-	  }, [loading, user, navigate]);
-    
+  useEffect(() => {
+    if (!loading && !user) navigate("/login", { replace: true });
+  }, [loading, user, navigate]);
+
+  const openDeleteConfirm = (category: CategoryRow, e: MouseEvent) => {
+    e.stopPropagation();
+    setDeleteConfirmCategory(category);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteLoading) return;
+    setDeleteConfirmCategory(null);
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deleteConfirmCategory) return;
+    const cid = deleteConfirmCategory.category_id ?? deleteConfirmCategory.id;
+    if (!cid) return;
+
+    setDeleteLoading(true);
+    try {
+      await axios.delete(`${import.meta.env.VITE_BACKEND_URL}/categories/${cid}`);
+      toast.success("Category deleted");
+      setDeleteConfirmCategory(null);
+      await fetchCategories();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not delete category. Please try again.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
   return (
     <>
-      <div className="min-h-screen bg-theme-bg p-4">
+      <div className="h-[calc(100vh-55px)] bg-theme-bg p-4">
         {compLoading ? 
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
           <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
         </div> :
         <div className="w-full flex flex-col gap-4">
@@ -136,25 +168,57 @@ export default function Categories() {
                       </div>
                       <button
                         type="button"
-                        className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-theme-text"
+                        className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-theme-text cursor-pointer"
                         onClick={(e) => openEditModal(category, e)}
                         aria-label="Edit category"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
+                      {/* Popover */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-theme-text cursor-pointer"
+                            aria-label="Category options"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <EllipsisVertical className="h-4 w-4" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="start">
+                          <div className="flex flex-col gap-2 p-1">
+                            <button
+                              type="button"
+                              className="flex gap-2 items-center border border-red-500 rounded-md px-2 py-2 cursor-pointer text-xs font-medium bg-red-500/10 hover:bg-red-500/20 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDeleteConfirm(category, e);
+                              }}
+                            >
+                              <Trash className="w-4 h-4 text-theme-text" />
+                              <p className="text-theme-text">Delete</p>
+                            </button>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
                 );
               })}
             </div> : 
             // No categories found
-            <div className="flex items-center justify-center h-full">
-              <p className="text-theme-text">No categories found</p>
+            <div className="flex flex-col gap-2 items-center justify-center h-full">
+              <NoDataLottie />
+              <div>
+                <p className="text-theme-text ml-5">No categories found</p>
+              </div>
             </div>
           }
         </div>
         }
       </div>
+      {/* Create/Edit Modal */}
       {isModalOpen && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4"
@@ -208,6 +272,45 @@ export default function Categories() {
             </div>
           </div>
         )}
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmCategory && (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4"
+          onClick={closeDeleteModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-neutral-800 bg-theme-bg p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-theme-text">Delete category</h2>
+              <p className="mt-2 text-sm text-neutral-400">
+                Delete &quot;{deleteConfirmCategory.category_name ?? "this category"}&quot;? All 
+                {(deleteConfirmCategory.item_count ?? 0) === 1 ? "item" : "items"} in this category
+                will be removed permanently, then the category will be deleted.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-theme-text transition-colors hover:bg-neutral-800 cursor-pointer disabled:opacity-50"
+                onClick={closeDeleteModal}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-red-500 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/25 cursor-pointer disabled:opacity-50"
+                onClick={() => void confirmDeleteCategory()}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   ) 
 }

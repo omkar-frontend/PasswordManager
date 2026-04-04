@@ -5,6 +5,7 @@ import { ChevronLeft, Eye, EyeOff, Pencil, Plus, X } from "lucide-react";
 import { encrypt } from "../crypto/encrypt";
 import { decrypt } from "../crypto/decrypt";
 import { useVault } from "../context/VaultContext";
+import NoDataLottie from "@/components/NoDataLottie";
 
 type CategoryItem = {
   category_item_id: string;
@@ -220,7 +221,13 @@ export default function CategoryItems() {
             {compLoading ? (
               <p className="text-theme-text">Loading…</p>
             ) : shieldItems.length === 0 ? (
-              <p className="text-neutral-400">No items in this category.</p>
+              // No categories found
+                <div className="flex flex-col gap-2 items-center justify-center h-full mt-10">
+                  <NoDataLottie />
+                  <div>
+                    <p className="text-theme-text ml-5">No items in this category</p>
+                  </div>
+                </div>
             ) : (
               <ul className="grid lg:grid-cols-4 md:grid-cols-2 grid-cols-1 gap-3">
                 {shieldItems.map((item) => (

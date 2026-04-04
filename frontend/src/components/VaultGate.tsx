@@ -7,7 +7,7 @@ import type { UserSecurityRow } from "../types/userSecurity";
 import { setupMasterPassword } from "../pages/SetupMaster";
 import { unlockVault } from "../pages/UnlockVault";
 import { saveVaultSessionKey, tryRestoreVaultFromSession } from "../lib/vaultSession";
-import { Eye, EyeOff, LockKeyholeOpen } from "lucide-react";
+import { Eye, EyeOff, Loader2, LockKeyholeOpen } from "lucide-react";
 
 function backendUrl(): string {
   const url = import.meta.env.VITE_BACKEND_URL;
@@ -80,8 +80,10 @@ export default function VaultGate() {
 
   if (authLoading || record === undefined) {
     return (
-      <div className="flex h-[calc(100vh-55px)] items-center justify-center bg-theme-bg p-6 text-theme-text">
-        <p>Loading...</p>
+      <div className="min-h-screen bg-theme-bg p-4">
+        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
+          <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
+        </div>
       </div>
     );
   }

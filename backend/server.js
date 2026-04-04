@@ -67,7 +67,8 @@ app.get("/categories", async (req, res) => {
   const { data: categories, error: catError } = await userSupabase
     .schema("shield_schema")
     .from("categories")
-    .select("*");
+    .select("*")
+    .order("created_at", { ascending: false });
 
   if (catError) {
     console.error("Supabase Error:", catError);
@@ -152,6 +153,56 @@ app.put("/categories/:categoryId", async (req, res) => {
     return res.status(404).json({ error: "category not found" });
   }
   res.json(data);
+});
+
+app.delete("/categories/:categoryId", async (req, res) => {
+  const { categoryId } = req.params;
+  if (!categoryId || typeof categoryId !== "string" || !categoryId.trim()) {
+    return res.status(400).json({ error: "category_id is required" });
+  }
+
+  const id = categoryId.trim();
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const { data: existing, error: fetchErr } = await userSupabase
+    .schema("shield_schema")
+    .from("categories")
+    .select("category_id")
+    .eq("category_id", id)
+    .maybeSingle();
+
+  if (fetchErr) {
+    console.error("Supabase Error:", fetchErr);
+    return res.status(500).json({ error: fetchErr });
+  }
+  if (!existing) {
+    return res.status(404).json({ error: "category not found" });
+  }
+
+  const { error: itemsErr } = await userSupabase
+    .schema("shield_schema")
+    .from("category_items")
+    .delete()
+    .eq("category_id", id);
+
+  if (itemsErr) {
+    console.error("Supabase Error:", itemsErr);
+    return res.status(500).json({ error: itemsErr });
+  }
+
+  const { error: catErr } = await userSupabase
+    .schema("shield_schema")
+    .from("categories")
+    .delete()
+    .eq("category_id", id);
+
+  if (catErr) {
+    console.error("Supabase Error:", catErr);
+    return res.status(500).json({ error: catErr });
+  }
+
+  res.status(204).end();
 });
 
 app.get("/category-items", async (req, res) => {
