@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, UserPlus } from "lucide-react";
+import { Eye, EyeOff, Loader2, UserPlus } from "lucide-react";
 import { supabase } from "../supabaseClient";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ export default function Signup() {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-theme-bg px-4 py-12">
+    <div className="relative flex min-h-screen flex-col items-center justify-start overflow-hidden bg-theme-bg px-4 py-12">
       <div
         className="pointer-events-none absolute inset-0 opacity-40"
         aria-hidden
@@ -75,21 +76,32 @@ export default function Signup() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                required
               />
             </div>
             <div className="space-y-2">
               <label htmlFor="signup-password" className="text-sm font-medium text-theme-text">
                 Password
               </label>
-              <input
-                id="signup-password"
-                className="cmn-field-input"
-                type="password"
-                autoComplete="new-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="signup-password"
+                  className="cmn-field-input pr-14!"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                {
+                  showPassword ? (
+                    <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(false)} />
+                  ) : (
+                    <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(true)} />
+                  )
+                }
+              </div>
             </div>
             <button
               type="submit"

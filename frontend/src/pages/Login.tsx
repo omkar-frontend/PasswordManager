@@ -1,12 +1,13 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, Lock } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
@@ -84,21 +85,32 @@ export default function Login() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                required
               />
             </div>
             <div className="space-y-2">
               <label htmlFor="login-password" className="text-sm font-medium text-theme-text">
                 Password
               </label>
-              <input
-                id="login-password"
-                className="cmn-field-input"
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="login-password"
+                  className="cmn-field-input pr-14!"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                {
+                  showPassword ? (
+                    <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(false)} />
+                  ) : (
+                    <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(true)} />
+                  )
+                }
+              </div>
             </div>
             <button
               type="submit"
