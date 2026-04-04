@@ -41,7 +41,7 @@ export default function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-theme-bg px-4 py-12">
+    <div className="relative flex min-h-screen flex-col items-center justify-start overflow-hidden bg-theme-bg px-4 py-12">
       <div
         className="pointer-events-none absolute inset-0 opacity-40"
         aria-hidden
