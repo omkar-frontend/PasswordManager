@@ -82,7 +82,7 @@ export default function VaultGate() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-theme-bg p-4">
-        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
+        <div className="flex items-center justify-center h-[calc(100dvh-55px)]">
           <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
         </div>
       </div>
@@ -91,7 +91,7 @@ export default function VaultGate() {
 
   if (loadError) {
     return (
-      <div className="p-6 text-theme-text h-[calc(100vh-55px)] flex flex-col items-center justify-center gap-4 bg-theme-bg">
+      <div className="p-6 text-theme-text h-[calc(100dvh-55px)] flex flex-col items-center justify-center gap-4 bg-theme-bg">
         <p className="text-red-500 bg-red-500/10 p-4 rounded-lg border border-red-500/20">{loadError}</p>
         <button
           type="button"
@@ -107,7 +107,7 @@ export default function VaultGate() {
   if (record === undefined) {
     return (
       <div className="min-h-screen bg-theme-bg p-4">
-        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
+        <div className="flex items-center justify-center h-[calc(100dvh-55px)]">
           <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function VaultGate() {
 
   if (record !== null && !vaultSessionReady) {
     return (
-      <div className="flex h-[calc(100vh-55px)] items-center justify-center bg-theme-bg p-6 text-theme-text">
+      <div className="flex h-[calc(100dvh-55px)] items-center justify-center bg-theme-bg p-6 text-theme-text">
         <p>Restoring vault…</p>
       </div>
     );
@@ -153,7 +153,7 @@ export default function VaultGate() {
     };
 
     return (
-      <div className="flex justify-center items-center h-[calc(100vh-55px)] bg-theme-bg">  
+      <div className="flex justify-center items-center h-[calc(100dvh-55px)] bg-theme-bg">  
         <div className=" flex max-w-md flex-col gap-4 p-6 text-theme-text">
           <h1 className="text-xl font-semibold">Create master password</h1>
           <p className="text-sm text-neutral-400">
@@ -208,7 +208,7 @@ export default function VaultGate() {
   };
 
   return (
-    <div className="flex justify-center items-start pt-20 h-[calc(100vh-55px)] bg-theme-bg">
+    <div className="flex justify-center items-start pt-20 h-[calc(100dvh-55px)] bg-theme-bg">
       <div className="mx-auto flex max-w-md flex-col gap-4 p-6 text-theme-text items-center w-96">
         <LockKeyholeOpen className="w-10 h-10 text-neutral-300 p-2.5 border border-neutral-700 rounded-lg" />
         <p className="text-xl font-semibold">Unlock vault</p>

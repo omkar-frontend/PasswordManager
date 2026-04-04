@@ -132,9 +132,9 @@ export default function Categories() {
   };
   return (
     <>
-      <div className="h-[calc(100vh-55px)] bg-theme-bg p-4">
+      <div className="h-[calc(100dvh-55px)] bg-theme-bg p-4">
         {compLoading ? 
-        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
+        <div className="flex items-center justify-center h-[calc(100dvh-55px)]">
           <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
         </div> :
         <div className="w-full flex flex-col gap-4">
