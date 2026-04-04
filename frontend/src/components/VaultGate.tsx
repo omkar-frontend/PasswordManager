@@ -29,6 +29,7 @@ export default function VaultGate() {
   const [vaultSessionReady, setVaultSessionReady] = useState(false);
 
   const [showPassword, setShowPassword] = useState(false);
+  const [fetchAttempt, setFetchAttempt] = useState(0);
 
   useEffect(() => {
     if (authLoading || !session) return;
@@ -48,7 +49,7 @@ export default function VaultGate() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, session]);
+  }, [authLoading, session, fetchAttempt]);
 
   /** Try sessionStorage-backed key so refresh does not re-prompt (same tab session). */
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function VaultGate() {
     };
   }, [authLoading, session?.user?.id, record, vaultKey, setVaultKey]);
 
-  if (authLoading || record === undefined) {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-theme-bg p-4">
         <div className="flex items-center justify-center h-[calc(100vh-55px)]">
@@ -90,8 +91,25 @@ export default function VaultGate() {
 
   if (loadError) {
     return (
-      <div className="p-6 text-theme-text">
-        <p className="text-red-500">{loadError}</p>
+      <div className="p-6 text-theme-text h-[calc(100vh-55px)] flex flex-col items-center justify-center gap-4 bg-theme-bg">
+        <p className="text-red-500 bg-red-500/10 p-4 rounded-lg border border-red-500/20">{loadError}</p>
+        <button
+          type="button"
+          className="button-theme"
+          onClick={() => setFetchAttempt((n) => n + 1)}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (record === undefined) {
+    return (
+      <div className="min-h-screen bg-theme-bg p-4">
+        <div className="flex items-center justify-center h-[calc(100vh-55px)]">
+          <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
+        </div>
       </div>
     );
   }
