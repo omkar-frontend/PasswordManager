@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Eye, EyeOff, Pencil, Plus, X } from "lucide-react";
+import { toast } from "sonner";
+import { ChevronLeft, Eye, EyeOff, Pencil, Plus, Trash, X } from "lucide-react";
 import { encrypt } from "../crypto/encrypt";
 import { decrypt } from "../crypto/decrypt";
 import { useVault } from "../context/VaultContext";
@@ -102,6 +103,8 @@ export default function CategoryItems() {
   });
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<CategoryItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const navigate = useNavigate();
   const fetchShieldItems = async () => {
     if (!categoryId) {
@@ -199,6 +202,34 @@ export default function CategoryItems() {
     }
   };
 
+  const openDeleteConfirm = (item: CategoryItem) => {
+    setDeleteConfirmItem(item);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteLoading) return;
+    setDeleteConfirmItem(null);
+  };
+
+  const confirmDeleteItem = async () => {
+    if (!deleteConfirmItem?.category_item_id) return;
+
+    setDeleteLoading(true);
+    try {
+      await axios.delete(
+        `${import.meta.env.VITE_BACKEND_URL}/category-items/${deleteConfirmItem.category_item_id}`
+      );
+      toast.success("Item deleted");
+      setDeleteConfirmItem(null);
+      await fetchShieldItems();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not delete item. Please try again.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   return (
     <>
       <div className="min-h-screen bg-theme-bg p-4">
@@ -242,14 +273,24 @@ export default function CategoryItems() {
                           <p className="text-sm text-neutral-400">{item.description}</p>
                         ) : null}
                       </div>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-theme-text"
-                        onClick={() => openEditModal(item)}
-                        aria-label="Edit item"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-theme-text cursor-pointer"
+                          onClick={() => openEditModal(item)}
+                          aria-label="Edit item"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-500/10 hover:border-red-500 border border-transparent cursor-pointer"
+                          onClick={() => openDeleteConfirm(item)}
+                          aria-label="Delete item"
+                        >
+                          <Trash className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                     {vaultKey ? <ItemPasswordRow item={item} vaultKey={vaultKey} /> : null}
                   </li>
@@ -337,6 +378,42 @@ export default function CategoryItems() {
           </div>
         </div>
       ) : null}
+      {deleteConfirmItem && (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm"
+          onClick={closeDeleteModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-neutral-800 bg-theme-bg p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-theme-text">Delete item</h2>
+              <p className="mt-2 text-sm text-neutral-400">
+                Delete &quot;{deleteConfirmItem.title ?? "this item"}&quot;? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="cursor-pointer rounded-lg border border-neutral-700 px-4 py-2 text-sm text-theme-text transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                onClick={closeDeleteModal}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="cursor-pointer rounded-lg border border-red-500 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/25 disabled:opacity-50"
+                onClick={() => void confirmDeleteItem()}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
-  )
+  );
 }

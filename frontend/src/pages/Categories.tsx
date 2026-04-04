@@ -146,7 +146,7 @@ export default function Categories() {
           </div>
           {
             categories.length > 0 ? 
-            <div className="grid grid-cols-6 gap-4 *:rounded-xl *:border *:border-neutral-800 *:p-3 *:transition-colors cursor-pointer">
+            <div className="grid lg:grid-cols-6 md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-4 *:rounded-xl *:border *:border-neutral-800 *:p-3 *:transition-colors cursor-pointer">
               {categories.map((category) => {
                 const cid = category.category_id ?? category.id;
                 return (

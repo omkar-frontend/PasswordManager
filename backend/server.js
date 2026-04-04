@@ -387,4 +387,43 @@ app.put("/category-items/:categoryItemId", async (req, res) => {
   res.json(data);
 });
 
+app.delete("/category-items/:categoryItemId", async (req, res) => {
+  const { categoryItemId } = req.params;
+  if (!categoryItemId || typeof categoryItemId !== "string" || !categoryItemId.trim()) {
+    return res.status(400).json({ error: "category_item_id is required" });
+  }
+
+  const id = categoryItemId.trim();
+  const userSupabase = createUserClient(req, res);
+  if (!userSupabase) return;
+
+  const { data: existing, error: fetchErr } = await userSupabase
+    .schema("shield_schema")
+    .from("category_items")
+    .select("category_item_id")
+    .eq("category_item_id", id)
+    .maybeSingle();
+
+  if (fetchErr) {
+    console.error("Supabase Error:", fetchErr);
+    return res.status(500).json({ error: fetchErr });
+  }
+  if (!existing) {
+    return res.status(404).json({ error: "item not found" });
+  }
+
+  const { error: delErr } = await userSupabase
+    .schema("shield_schema")
+    .from("category_items")
+    .delete()
+    .eq("category_item_id", id);
+
+  if (delErr) {
+    console.error("Supabase Error:", delErr);
+    return res.status(500).json({ error: delErr });
+  }
+
+  res.status(204).end();
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

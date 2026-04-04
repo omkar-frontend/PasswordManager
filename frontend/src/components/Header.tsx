@@ -32,15 +32,15 @@ export default function Header() {
       {/* Popover */}
       <Popover>
         <PopoverTrigger asChild>
-          <UserRound className="w-8 h-8 cursor-pointer text-theme-text p-1.5 rounded-full transition-colors hover:bg-neutral-600" />
+          <UserRound className="w-8 h-8 cursor-pointer text-theme-text p-1.5 rounded-lg transition-colors hover:bg-neutral-800" />
         </PopoverTrigger>
         <PopoverContent>
           <div className="flex flex-col gap-2 p-1">
             <p className="text-theme-text text-sm px-2 py-1">{user?.email ?? "No user"}</p>
             {/* Logout button */}
-            <div className="flex items-center gap-2 cursor-pointer w-full rounded-lg hover:bg-neutral-700 p-2 *:transition-colors group" onClick={handleLogout}>
-              <LogOut className="w-4 h-4 text-theme-text group-hover:text-red-500" />
-              <p className="text-theme-text group-hover:text-red-500">Logout</p>
+            <div className="flex items-center gap-2 cursor-pointer w-full rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500 p-2 transition-colors *:text-theme-text" onClick={handleLogout}>
+              <LogOut className="w-4 h-4" />
+              <p>Logout</p>
             </div>
           </div>
         </PopoverContent>

@@ -28,6 +28,8 @@ export default function VaultGate() {
   const [unlockPassword, setUnlockPassword] = useState("");
   const [vaultSessionReady, setVaultSessionReady] = useState(false);
 
+  const [showMasterPassword, setShowMasterPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [fetchAttempt, setFetchAttempt] = useState(0);
 
@@ -160,22 +162,42 @@ export default function VaultGate() {
             This encrypts your vault. It is not your account login password.
           </p>
           {formError ? <p className="text-sm text-red-500">{formError}</p> : null}
-          <input
-            type="password"
-            className="cmn-field-input"
-            placeholder="Master password (min 8 characters)"
-            value={setupPassword}
-            onChange={(e) => setSetupPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-          <input
-            type="password"
-            className="cmn-field-input"
-            placeholder="Confirm master password"
-            value={setupConfirm}
-            onChange={(e) => setSetupConfirm(e.target.value)}
-            autoComplete="new-password"
-          />
+          <div className="relative">
+            <input
+              type={showMasterPassword ? "text" : "password"}
+              className="cmn-field-input pr-14!"
+              placeholder="Master password (min 8 characters)"
+              value={setupPassword}
+              onChange={(e) => setSetupPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+            {
+              showMasterPassword ? (
+                <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowMasterPassword(false)} />
+              ) : (
+                <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowMasterPassword(true)} />
+              )
+            }
+          </div>
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? "text" : "password"}
+              className="cmn-field-input pr-14!"
+              placeholder="Confirm master password"
+              value={setupConfirm}
+              onChange={(e) => setSetupConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+            {
+              showConfirmPassword ? (
+                <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowConfirmPassword(false)} />
+              ) : (
+                <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowConfirmPassword(true)} />
+              )
+            }
+          </div>
           <button
             type="button"
             className="button-theme"
@@ -223,6 +245,7 @@ export default function VaultGate() {
             onChange={(e) => setUnlockPassword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void submitUnlock()}
             autoComplete="current-password"
+            required
           />
           {
             showPassword ? (
