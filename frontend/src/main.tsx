@@ -10,7 +10,6 @@ import Login from './pages/Login.tsx'
 import Signup from './pages/Signup.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
 import Categories from './pages/Categories.tsx'
-import './lib/axiosAuth'
 import CategoryItems from './pages/CategoryItems.tsx'
 
 function LegacyCategoryRedirect() {

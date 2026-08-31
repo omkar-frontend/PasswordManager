@@ -1,89 +1,60 @@
 const express = require("express");
-const supabase = require("./supabase");
-const { createSupabaseWithUserJwt } = require("./supabaseUser");
 const cors = require("cors");
-const dotenv = require("dotenv");
-dotenv.config();
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+
+const { env } = require("./env");
+const { authenticate } = require("./auth");
+const { LIMITS, trimmed, requiredString, dbFail } = require("./validation");
 
 const app = express();
 
-// macOS uses port 5000 for AirPlay Receiver; use another port (e.g. 5050) in dev.
-const PORT = Number(process.env.PORT) || 5050;
+// Rate limiting keys off the client IP, which is only trustworthy behind a known proxy.
+if (env.isProd) app.set("trust proxy", 1);
+
+app.use(helmet());
 
 const corsOptions = {
-  origin: [
-    "http://localhost:5173",
-    process.env.FRONTEND_URL,
-  ].filter(Boolean),
+  origin: ["http://localhost:5173", env.frontendUrl].filter(Boolean),
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
-
 app.use(cors(corsOptions));
-app.use(express.json());
 
-const authenticateRequest = async (req, res, next) => {
-  if (req.method === "OPTIONS") return next();
+app.use(express.json({ limit: "100kb" }));
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing or invalid Authorization header" });
-  }
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please slow down." },
+  }),
+);
 
-  const token = authHeader.slice("Bearer ".length).trim();
-  if (!token) {
-    return res.status(401).json({ error: "Missing bearer token" });
-  }
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data?.user) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
+app.use(authenticate);
 
-  req.user = data.user;
-  next();
-};
+const SCHEMA = "shield_schema";
 
-app.use(authenticateRequest);
-
-function createUserClient(req, res) {
-  try {
-    return createSupabaseWithUserJwt(req.headers.authorization);
-  } catch (err) {
-    console.error(err);
-    const message =
-      err instanceof Error && err.message.includes("SUPABASE_ANON_KEY")
-        ? "Set SUPABASE_ANON_KEY in backend/.env (same value as VITE_SUPABASE_ANON_KEY)."
-        : "Server configuration error";
-    res.status(500).json({ error: message });
-    return null;
-  }
-}
+/** Every query is additionally scoped to the caller, so a missing RLS policy is not a breach. */
+const table = (req, name) => req.db.schema(SCHEMA).from(name);
 
 app.get("/categories", async (req, res) => {
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data: categories, error: catError } = await userSupabase
-    .schema("shield_schema")
-    .from("categories")
+  const { data: categories, error: catError } = await table(req, "categories")
     .select("*")
+    .eq("user_id", req.user.id)
     .order("created_at", { ascending: false });
 
-  if (catError) {
-    console.error("Supabase Error:", catError);
-    return res.status(500).json({ error: catError });
-  }
+  if (catError) return dbFail(res, "GET /categories", catError);
 
-  const { data: itemRows, error: itemError } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
-    .select("category_id");
+  const { data: itemRows, error: itemError } = await table(req, "category_items")
+    .select("category_id")
+    .eq("user_id", req.user.id);
 
-  if (itemError) {
-    console.error("Supabase Error:", itemError);
-    return res.status(500).json({ error: itemError });
-  }
+  if (itemError) return dbFail(res, "GET /categories items", itemError);
 
   const countByCategory = Object.create(null);
   for (const row of itemRows ?? []) {
@@ -102,328 +73,285 @@ app.get("/categories", async (req, res) => {
   res.json(withCounts);
 });
 
-//  POST /categories
 app.post("/categories", async (req, res) => {
-  const { code, name } = req.body;
+  const code = requiredString(req.body?.code, LIMITS.categoryCode);
+  const name = requiredString(req.body?.name, LIMITS.categoryName);
   if (!code || !name) {
     return res.status(400).json({ error: "code and name are required" });
   }
 
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("categories")
-    .insert({ category_code: code, category_name: name });
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
-  }
-  res.json(data);
-});
-
-app.put("/categories/:categoryId", async (req, res) => {
-  const { categoryId } = req.params;
-  if (!categoryId || typeof categoryId !== "string" || !categoryId.trim()) {
-    return res.status(400).json({ error: "category_id is required" });
-  }
-
-  const { name } = req.body ?? {};
-  if (typeof name !== "string" || !name.trim()) {
-    return res.status(400).json({ error: "name is required" });
-  }
-
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("categories")
-    .update({ category_name: name.trim() })
-    .eq("category_id", categoryId.trim())
+  const { data, error } = await table(req, "categories")
+    .insert({ user_id: req.user.id, category_code: code, category_name: name })
     .select()
     .maybeSingle();
 
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
+  if (error) return dbFail(res, "POST /categories", error);
+  res.status(201).json(data);
+});
+
+app.put("/categories/:categoryId", async (req, res) => {
+  const categoryId = requiredString(req.params.categoryId, LIMITS.id);
+  if (!categoryId) {
+    return res.status(400).json({ error: "category_id is required" });
   }
-  if (!data) {
-    return res.status(404).json({ error: "category not found" });
+
+  const name = requiredString(req.body?.name, LIMITS.categoryName);
+  if (!name) {
+    return res.status(400).json({ error: "name is required" });
   }
+
+  const { data, error } = await table(req, "categories")
+    .update({ category_name: name })
+    .eq("category_id", categoryId)
+    .eq("user_id", req.user.id)
+    .select()
+    .maybeSingle();
+
+  if (error) return dbFail(res, "PUT /categories", error);
+  if (!data) return res.status(404).json({ error: "category not found" });
   res.json(data);
 });
 
 app.delete("/categories/:categoryId", async (req, res) => {
-  const { categoryId } = req.params;
-  if (!categoryId || typeof categoryId !== "string" || !categoryId.trim()) {
+  const categoryId = requiredString(req.params.categoryId, LIMITS.id);
+  if (!categoryId) {
     return res.status(400).json({ error: "category_id is required" });
   }
 
-  const id = categoryId.trim();
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data: existing, error: fetchErr } = await userSupabase
-    .schema("shield_schema")
-    .from("categories")
+  const { data: existing, error: fetchErr } = await table(req, "categories")
     .select("category_id")
-    .eq("category_id", id)
+    .eq("category_id", categoryId)
+    .eq("user_id", req.user.id)
     .maybeSingle();
 
-  if (fetchErr) {
-    console.error("Supabase Error:", fetchErr);
-    return res.status(500).json({ error: fetchErr });
-  }
-  if (!existing) {
-    return res.status(404).json({ error: "category not found" });
-  }
+  if (fetchErr) return dbFail(res, "DELETE /categories lookup", fetchErr);
+  if (!existing) return res.status(404).json({ error: "category not found" });
 
-  const { error: itemsErr } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
+  // Not atomic: PostgREST has no multi-statement transaction. Items go first so a failure
+  // here leaves the category intact and the delete can simply be retried.
+  const { error: itemsErr } = await table(req, "category_items")
     .delete()
-    .eq("category_id", id);
+    .eq("category_id", categoryId)
+    .eq("user_id", req.user.id);
 
-  if (itemsErr) {
-    console.error("Supabase Error:", itemsErr);
-    return res.status(500).json({ error: itemsErr });
-  }
+  if (itemsErr) return dbFail(res, "DELETE /categories items", itemsErr);
 
-  const { error: catErr } = await userSupabase
-    .schema("shield_schema")
-    .from("categories")
+  const { error: catErr } = await table(req, "categories")
     .delete()
-    .eq("category_id", id);
+    .eq("category_id", categoryId)
+    .eq("user_id", req.user.id);
 
-  if (catErr) {
-    console.error("Supabase Error:", catErr);
-    return res.status(500).json({ error: catErr });
-  }
-
+  if (catErr) return dbFail(res, "DELETE /categories", catErr);
   res.status(204).end();
 });
 
+/** Omitting `category_id` returns every item the caller owns, which backs vault-wide search. */
 app.get("/category-items", async (req, res) => {
-  const categoryId = req.query.category_id;
-  if (!categoryId || typeof categoryId !== "string") {
-    return res.status(400).json({ error: "category_id query parameter is required" });
+  const rawCategoryId = req.query.category_id;
+  let categoryId = null;
+
+  if (rawCategoryId !== undefined) {
+    categoryId = requiredString(rawCategoryId, LIMITS.id);
+    if (!categoryId) {
+      return res.status(400).json({ error: "category_id must be a non-empty id" });
+    }
   }
 
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
+  // Without an explicit order Postgres may return rows differently between calls, so the
+  // list visibly reshuffles. category_item_id breaks ties on identical timestamps.
+  let query = table(req, "category_items")
     .select("*")
-    .eq("category_id", categoryId);
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false })
+    .order("category_item_id", { ascending: true });
 
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
-  }
+  if (categoryId) query = query.eq("category_id", categoryId);
+
+  const { data, error } = await query;
+
+  if (error) return dbFail(res, "GET /category-items", error);
   res.json(data ?? []);
 });
 
 app.get("/user-security", async (req, res) => {
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("user_security")
+  const { data, error } = await table(req, "user_security")
     .select("*")
     .eq("user_id", req.user.id)
     .maybeSingle();
 
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
-  }
-
+  if (error) return dbFail(res, "GET /user-security", error);
   res.json(data ?? null);
 });
 
 app.post("/user-security", async (req, res) => {
-  const { salt, check_cipher, check_iv } = req.body ?? {};
-  if (
-    typeof salt !== "string" ||
-    !salt.trim() ||
-    typeof check_cipher !== "string" ||
-    !check_cipher.trim() ||
-    typeof check_iv !== "string" ||
-    !check_iv.trim()
-  ) {
+  const salt = requiredString(req.body?.salt, LIMITS.salt);
+  const checkCipher = requiredString(req.body?.check_cipher, LIMITS.cipher);
+  const checkIv = requiredString(req.body?.check_iv, LIMITS.iv);
+
+  if (!salt || !checkCipher || !checkIv) {
     return res.status(400).json({ error: "salt, check_cipher, and check_iv are required" });
   }
 
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("user_security")
+  const { data, error } = await table(req, "user_security")
     .insert({
       user_id: req.user.id,
-      salt: salt.trim(),
-      check_cipher: check_cipher.trim(),
-      check_iv: check_iv.trim(),
+      salt,
+      check_cipher: checkCipher,
+      check_iv: checkIv,
     })
     .select()
     .maybeSingle();
 
   if (error) {
-    console.error("Supabase Error:", error);
     if (String(error.code) === "23505") {
       return res.status(409).json({ error: "Vault already configured for this user" });
     }
-    return res.status(500).json({ error });
+    return dbFail(res, "POST /user-security", error);
   }
 
-  res.json(data);
+  res.status(201).json(data);
 });
 
-app.post("/category-items", async (req, res) => {
-  const { category_id, title, password_cipher, password_iv, description } = req.body ?? {};
+/** Both cipher fields must be present together, or both explicitly null to clear. */
+function readCipherPair(body) {
+  const { password_cipher: cipherRaw, password_iv: ivRaw } = body;
 
-  if (!category_id || typeof category_id !== "string") {
+  if (cipherRaw === null || ivRaw === null) {
+    if (cipherRaw !== null && cipherRaw !== undefined) return { error: "password_cipher and password_iv must be cleared together" };
+    if (ivRaw !== null && ivRaw !== undefined) return { error: "password_cipher and password_iv must be cleared together" };
+    return { cipher: null, iv: null, present: true };
+  }
+
+  if (cipherRaw === undefined && ivRaw === undefined) return { present: false };
+
+  const cipher = requiredString(cipherRaw, LIMITS.cipher);
+  const iv = requiredString(ivRaw, LIMITS.iv);
+  if (!cipher || !iv) return { error: "password_cipher and password_iv must be set together" };
+  return { cipher, iv, present: true };
+}
+
+app.post("/category-items", async (req, res) => {
+  const categoryId = requiredString(req.body?.category_id, LIMITS.id);
+  if (!categoryId) {
     return res.status(400).json({ error: "category_id is required" });
   }
-  if (!title || typeof title !== "string" || !title.trim()) {
+
+  const title = requiredString(req.body?.title, LIMITS.title);
+  if (!title) {
     return res.status(400).json({ error: "title is required" });
   }
 
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const hasCipher =
-    password_cipher != null &&
-    String(password_cipher).trim() !== "" &&
-    password_iv != null &&
-    String(password_iv).trim() !== "";
-
-  const pc = hasCipher ? String(password_cipher).trim() : null;
-  const piv = hasCipher ? String(password_iv).trim() : null;
-  const desc =
-    description != null && String(description).trim() !== "" ? String(description).trim() : null;
-
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
-    .insert({
-      category_id,
-      title: title.trim(),
-      password_cipher: pc,
-      password_iv: piv,
-      description: desc,
-    })
-    .select();
-
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
+  const description = trimmed(req.body?.description);
+  if (description.length > LIMITS.description) {
+    return res.status(400).json({ error: "description is too long" });
   }
-  res.json(data);
+
+  const cipherPair = readCipherPair(req.body ?? {});
+  if (cipherPair.error) return res.status(400).json({ error: cipherPair.error });
+
+  // The item inherits the caller's user_id, so confirm the parent category is theirs.
+  const { data: category, error: catErr } = await table(req, "categories")
+    .select("category_id")
+    .eq("category_id", categoryId)
+    .eq("user_id", req.user.id)
+    .maybeSingle();
+
+  if (catErr) return dbFail(res, "POST /category-items lookup", catErr);
+  if (!category) return res.status(404).json({ error: "category not found" });
+
+  const { data, error } = await table(req, "category_items")
+    .insert({
+      user_id: req.user.id,
+      category_id: categoryId,
+      title,
+      password_cipher: cipherPair.present ? cipherPair.cipher : null,
+      password_iv: cipherPair.present ? cipherPair.iv : null,
+      description: description || null,
+    })
+    .select()
+    .maybeSingle();
+
+  if (error) return dbFail(res, "POST /category-items", error);
+  res.status(201).json(data);
 });
 
 app.put("/category-items/:categoryItemId", async (req, res) => {
-  const { categoryItemId } = req.params;
-  if (!categoryItemId || typeof categoryItemId !== "string" || !categoryItemId.trim()) {
+  const categoryItemId = requiredString(req.params.categoryItemId, LIMITS.id);
+  if (!categoryItemId) {
     return res.status(400).json({ error: "category_item_id is required" });
   }
 
-  const { title, password_cipher, password_iv, description } = req.body ?? {};
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
+  const body = req.body ?? {};
   const updates = {};
 
-  if (title !== undefined) {
-    if (typeof title !== "string" || !title.trim()) {
-      return res.status(400).json({ error: "title cannot be empty" });
+  if (body.title !== undefined) {
+    const title = requiredString(body.title, LIMITS.title);
+    if (!title) return res.status(400).json({ error: "title cannot be empty" });
+    updates.title = title;
+  }
+
+  if (body.description !== undefined) {
+    const description = trimmed(body.description);
+    if (description.length > LIMITS.description) {
+      return res.status(400).json({ error: "description is too long" });
     }
-    updates.title = title.trim();
+    updates.description = description || null;
   }
 
-  if (description !== undefined) {
-    updates.description =
-      description != null && String(description).trim() !== ""
-        ? String(description).trim()
-        : null;
-  }
-
-  const hasCipher =
-    password_cipher != null &&
-    String(password_cipher).trim() !== "" &&
-    password_iv != null &&
-    String(password_iv).trim() !== "";
-
-  if (hasCipher) {
-    updates.password_cipher = String(password_cipher).trim();
-    updates.password_iv = String(password_iv).trim();
+  const cipherPair = readCipherPair(body);
+  if (cipherPair.error) return res.status(400).json({ error: cipherPair.error });
+  if (cipherPair.present) {
+    updates.password_cipher = cipherPair.cipher;
+    updates.password_iv = cipherPair.iv;
   }
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: "no fields to update" });
   }
 
-  const { data, error } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
+  const { data, error } = await table(req, "category_items")
     .update(updates)
-    .eq("category_item_id", categoryItemId.trim())
+    .eq("category_item_id", categoryItemId)
+    .eq("user_id", req.user.id)
     .select()
     .maybeSingle();
 
-  if (error) {
-    console.error("Supabase Error:", error);
-    return res.status(500).json({ error });
-  }
-  if (!data) {
-    return res.status(404).json({ error: "item not found" });
-  }
+  if (error) return dbFail(res, "PUT /category-items", error);
+  if (!data) return res.status(404).json({ error: "item not found" });
   res.json(data);
 });
 
 app.delete("/category-items/:categoryItemId", async (req, res) => {
-  const { categoryItemId } = req.params;
-  if (!categoryItemId || typeof categoryItemId !== "string" || !categoryItemId.trim()) {
+  const categoryItemId = requiredString(req.params.categoryItemId, LIMITS.id);
+  if (!categoryItemId) {
     return res.status(400).json({ error: "category_item_id is required" });
   }
 
-  const id = categoryItemId.trim();
-  const userSupabase = createUserClient(req, res);
-  if (!userSupabase) return;
-
-  const { data: existing, error: fetchErr } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
+  const { data: existing, error: fetchErr } = await table(req, "category_items")
     .select("category_item_id")
-    .eq("category_item_id", id)
+    .eq("category_item_id", categoryItemId)
+    .eq("user_id", req.user.id)
     .maybeSingle();
 
-  if (fetchErr) {
-    console.error("Supabase Error:", fetchErr);
-    return res.status(500).json({ error: fetchErr });
-  }
-  if (!existing) {
-    return res.status(404).json({ error: "item not found" });
-  }
+  if (fetchErr) return dbFail(res, "DELETE /category-items lookup", fetchErr);
+  if (!existing) return res.status(404).json({ error: "item not found" });
 
-  const { error: delErr } = await userSupabase
-    .schema("shield_schema")
-    .from("category_items")
+  const { error: delErr } = await table(req, "category_items")
     .delete()
-    .eq("category_item_id", id);
+    .eq("category_item_id", categoryItemId)
+    .eq("user_id", req.user.id);
 
-  if (delErr) {
-    console.error("Supabase Error:", delErr);
-    return res.status(500).json({ error: delErr });
-  }
-
+  if (delErr) return dbFail(res, "DELETE /category-items", delErr);
   res.status(204).end();
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.use((_req, res) => res.status(404).json({ error: "Not found" }));
+
+// eslint-disable-next-line no-unused-vars -- Express identifies error handlers by arity.
+app.use((err, _req, res, _next) => {
+  console.error("[unhandled]", err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Request failed. Please try again." });
+});
+
+app.listen(env.port, () => console.log(`Server running on port ${env.port}`));

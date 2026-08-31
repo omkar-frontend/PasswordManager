@@ -4,8 +4,14 @@
 @import "@fontsource-variable/geist";
 
 @theme {
-    --color-theme-bg: #0E0E10;
+    /* Layered surfaces: page → card → raised control. */
+    --color-theme-bg: #08080A;
+    --color-surface: #101013;
+    --color-surface-2: #17171B;
+    --color-hairline: #232329;
     --color-theme-text: #F4F4F5;
+    --color-theme-muted: #8B8B94;
+    --color-brand: #8B5CF6;
     --font-theme-font: 'Inter', sans-serif;
 }
 
@@ -127,18 +133,130 @@
   * {
     @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
-    }
   html {
     @apply font-sans;
+    /* Renders native controls, scrollbars and autofill in dark. */
+    color-scheme: dark;
+    }
+  body {
+    @apply bg-theme-bg text-theme-text antialiased;
+    }
+  ::selection {
+    @apply bg-violet-500/30 text-theme-text;
+    }
+  ::-webkit-scrollbar {
+    @apply h-2 w-2;
+    }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-neutral-700/70;
+    }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-neutral-600;
+    }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
     }
 }
 
-.button-theme {
-    @apply bg-purple-900 flex items-center justify-center gap-2 text-sm px-4 py-2 transition-colors cursor-pointer hover:bg-purple-800 rounded-lg text-theme-text;
+@layer components {
+  /* ---- Buttons ------------------------------------------------------ */
+  .button-theme {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white
+           shadow-lg shadow-violet-950/40 transition-all duration-150
+           hover:bg-violet-500 hover:shadow-violet-900/50
+           focus-visible:ring-2 focus-visible:ring-violet-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-theme-bg focus-visible:outline-none
+           active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:bg-violet-600;
+  }
+
+  .button-ghost {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-surface-2/60 px-4 py-2 text-sm font-medium text-theme-text
+           transition-all duration-150
+           hover:border-neutral-600 hover:bg-surface-2
+           focus-visible:ring-2 focus-visible:ring-neutral-500/50 focus-visible:outline-none
+           active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .button-danger {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300
+           transition-all duration-150
+           hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-200
+           focus-visible:ring-2 focus-visible:ring-red-500/40 focus-visible:outline-none
+           active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Square icon-only control, sized to sit beside inputs and card titles. */
+  .icon-button {
+    @apply inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg p-2 text-theme-muted
+           transition-colors duration-150
+           hover:bg-white/[0.06] hover:text-theme-text
+           focus-visible:ring-2 focus-visible:ring-neutral-500/50 focus-visible:outline-none
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .icon-button-danger {
+    @apply hover:bg-red-500/10 hover:text-red-300;
+  }
+
+  /* ---- Surfaces ----------------------------------------------------- */
+  .card {
+    @apply rounded-2xl border border-hairline bg-surface;
+  }
+
+  /* Cards that respond to pointer: lift, warm border, faint violet wash. */
+  .card-interactive {
+    @apply relative cursor-pointer overflow-hidden rounded-2xl border border-hairline bg-surface transition-all duration-200
+           hover:-translate-y-0.5 hover:border-violet-500/40 hover:bg-surface-2 hover:shadow-xl hover:shadow-black/40;
+  }
+
+  /* Gradient-filled rounded square holding a lucide icon. */
+  .icon-tile {
+    @apply flex shrink-0 items-center justify-center rounded-xl border border-violet-500/20
+           bg-gradient-to-br from-violet-500/25 to-violet-700/10 text-violet-300;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-hairline bg-white/[0.03] px-2.5 py-0.5 text-xs font-medium text-theme-muted;
+  }
+
+  /* ---- Forms -------------------------------------------------------- */
+  .cmn-field-input {
+    @apply w-full rounded-xl border border-hairline bg-surface-2/50 px-3.5 py-2.5 text-theme-text
+           placeholder:text-neutral-600
+           transition-all duration-150 outline-none
+           hover:border-neutral-700
+           focus:border-violet-500/70 focus:bg-surface-2 focus:ring-4 focus:ring-violet-500/10
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .field-label {
+    @apply text-sm font-medium text-theme-text;
+  }
+
+  /* ---- Overlays ----------------------------------------------------- */
+  .modal-backdrop {
+    /* Above Radix portal content (z-50), which renders after the app tree in the DOM. */
+    @apply fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md
+           animate-in fade-in duration-150;
+  }
+
+  .modal-panel {
+    @apply w-full max-w-md rounded-2xl border border-hairline bg-surface p-5 shadow-2xl shadow-black/60
+           animate-in fade-in zoom-in-95 duration-200;
+  }
+
+  /* ---- Feedback ----------------------------------------------------- */
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-white/[0.06];
+  }
 }
 
-.cmn-field-input {
-    @apply w-full rounded-lg border border-neutral-700 bg-transparent px-3 py-2 text-theme-text outline-none transition-colors focus:border-violet-700;
+/* Ambient violet wash used behind the auth and vault-gate screens. */
+.ambient-glow {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(109, 40, 217, 0.35), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(91, 33, 182, 0.12), transparent),
+    radial-gradient(ellipse 50% 30% at 0% 80%, rgba(124, 58, 237, 0.08), transparent);
 }

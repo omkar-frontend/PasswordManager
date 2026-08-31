@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "../supabaseClient";
 
 export default function Signup() {
@@ -22,7 +23,7 @@ export default function Signup() {
     setLoading(false);
     if (error) setErrorMsg(error.message);
     else {
-      alert("Signup successful! Check your email to confirm.");
+      toast.success("Account created — check your email to confirm.");
       navigate("/login");
     }
   };
@@ -34,31 +35,24 @@ export default function Signup() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-start overflow-hidden bg-theme-bg px-4 py-12">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-40"
-        aria-hidden
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(109, 40, 217, 0.35), transparent), radial-gradient(ellipse 60% 40% at 100% 50%, rgba(91, 33, 182, 0.12), transparent), radial-gradient(ellipse 50% 30% at 0% 80%, rgba(124, 58, 237, 0.08), transparent)",
-        }}
-      />
+      <div className="ambient-glow pointer-events-none absolute inset-0 opacity-40" aria-hidden />
       <div className="relative z-10 w-full max-w-[420px]">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900/60 shadow-lg shadow-violet-950/20">
-            <UserPlus className="h-6 w-6 text-violet-400" strokeWidth={1.75} />
+          <div className="icon-tile mx-auto mb-4 h-12 w-12">
+            <UserPlus className="h-5 w-5" strokeWidth={2} />
           </div>
           <p className="text-2xl font-semibold tracking-tight text-theme-text">
             Shield<span className="text-violet-500">X</span>
           </p>
-          <p className="mt-1 text-sm text-neutral-400">Create your account</p>
+          <p className="mt-1 text-sm text-theme-muted">Create your account</p>
         </div>
 
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
+        <div className="card bg-surface/70 p-8 shadow-2xl shadow-black/50 backdrop-blur-xl">
           <h1 className="sr-only">Sign up</h1>
           <form onSubmit={onSubmit} className="flex flex-col gap-5">
             {errorMsg && (
               <p
-                className="rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300"
+                className="rounded-xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300"
                 role="alert"
               >
                 {errorMsg}
@@ -86,7 +80,7 @@ export default function Signup() {
               <div className="relative">
                 <input
                   id="signup-password"
-                  className="cmn-field-input pr-14!"
+                  className="cmn-field-input pr-12"
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
                   placeholder="••••••••"
@@ -94,18 +88,19 @@ export default function Signup() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
-                {
-                  showPassword ? (
-                    <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(false)} />
-                  ) : (
-                    <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(true)} />
-                  )
-                }
+                <button
+                  type="button"
+                  className="icon-button absolute top-1/2 right-1.5 -translate-y-1/2"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
             <button
               type="submit"
-              className="button-theme mt-1 w-full justify-center py-2.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="button-theme mt-1 w-full py-2.5"
               disabled={loading}
             >
               {loading ? (
@@ -119,7 +114,7 @@ export default function Signup() {
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-neutral-400">
+          <p className="mt-6 text-center text-sm text-theme-muted">
             Already have an account?{" "}
             <Link
               to="/login"
