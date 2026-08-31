@@ -1,18 +1,80 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import axios from "axios";
 import { Outlet } from "react-router-dom";
+import { Eye, EyeOff, KeyRound, Loader2, LockKeyhole, ShieldAlert } from "lucide-react";
+import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useVault } from "../context/VaultContext";
 import type { UserSecurityRow } from "../types/userSecurity";
 import { setupMasterPassword } from "../pages/SetupMaster";
 import { unlockVault } from "../pages/UnlockVault";
-import { saveVaultSessionKey, tryRestoreVaultFromSession } from "../lib/vaultSession";
-import { Eye, EyeOff, Loader2, LockKeyholeOpen } from "lucide-react";
+import {
+  saveVaultSessionKey,
+  tryRestoreVaultFromSession,
+  VAULT_SESSION_MAX_AGE_MS,
+} from "../lib/vaultSession";
 
-function backendUrl(): string {
-  const url = import.meta.env.VITE_BACKEND_URL;
-  if (!url) throw new Error("VITE_BACKEND_URL is not set");
-  return url;
+/** Shared frame for the full-height states this gate renders. */
+function GateScreen({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10">
+      <div className="ambient-glow pointer-events-none absolute inset-0 opacity-40" aria-hidden />
+      <div className="relative z-10 w-full max-w-md">{children}</div>
+    </div>
+  );
+}
+
+function GateSpinner() {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <Loader2 className="h-7 w-7 animate-spin text-violet-400" />
+    </div>
+  );
+}
+
+/** Password field with a working show/hide toggle. */
+function PasswordField({
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  onEnter,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoComplete: string;
+  onEnter?: () => void;
+  autoFocus?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        type={show ? "text" : "password"}
+        className="cmn-field-input pr-12"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && onEnter) onEnter();
+        }}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+        required
+      />
+      <button
+        type="button"
+        className="icon-button absolute top-1/2 right-1.5 -translate-y-1/2"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
 }
 
 export default function VaultGate() {
@@ -27,11 +89,14 @@ export default function VaultGate() {
   const [setupConfirm, setSetupConfirm] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
   const [vaultSessionReady, setVaultSessionReady] = useState(false);
-
-  const [showMasterPassword, setShowMasterPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [fetchAttempt, setFetchAttempt] = useState(0);
+
+  /** Stores the key when we know the user, and returns the deadline to enforce either way. */
+  const persistKey = async (key: CryptoKey): Promise<number> => {
+    const userId = session?.user?.id;
+    if (userId) return saveVaultSessionKey(userId, key);
+    return Date.now() + VAULT_SESSION_MAX_AGE_MS;
+  };
 
   useEffect(() => {
     if (authLoading || !session) return;
@@ -39,8 +104,8 @@ export default function VaultGate() {
     let cancelled = false;
     setLoadError("");
 
-    axios
-      .get<UserSecurityRow | null>(`${backendUrl()}/user-security`)
+    api
+      .get<UserSecurityRow | null>("/user-security")
       .then((res) => {
         if (!cancelled) setRecord(res.data ?? null);
       })
@@ -53,16 +118,11 @@ export default function VaultGate() {
     };
   }, [authLoading, session, fetchAttempt]);
 
-  /** Try sessionStorage-backed key so refresh does not re-prompt (same tab session). */
+  /** Restore the stored key so a refresh does not re-prompt. */
   useEffect(() => {
     if (authLoading || !session?.user?.id || record === undefined) return;
 
-    if (record === null) {
-      setVaultSessionReady(true);
-      return;
-    }
-
-    if (vaultKey) {
+    if (record === null || vaultKey) {
       setVaultSessionReady(true);
       return;
     }
@@ -70,9 +130,9 @@ export default function VaultGate() {
     let cancelled = false;
     setVaultSessionReady(false);
 
-    tryRestoreVaultFromSession(session.user.id, record).then((k) => {
+    tryRestoreVaultFromSession(session.user.id, record).then((restored) => {
       if (cancelled) return;
-      if (k) setVaultKey(k);
+      if (restored) setVaultKey(restored.key, restored.expiresAt);
       setVaultSessionReady(true);
     });
 
@@ -81,38 +141,32 @@ export default function VaultGate() {
     };
   }, [authLoading, session?.user?.id, record, vaultKey, setVaultKey]);
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-theme-bg p-4">
-        <div className="flex items-center justify-center h-[calc(100dvh-55px)]">
-          <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
-        </div>
-      </div>
-    );
+  if (authLoading || record === undefined) {
+    return <GateSpinner />;
   }
 
   if (loadError) {
     return (
-      <div className="p-6 text-theme-text h-[calc(100dvh-55px)] flex flex-col items-center justify-center gap-4 bg-theme-bg">
-        <p className="text-red-500 bg-red-500/10 p-4 rounded-lg border border-red-500/20">{loadError}</p>
-        <button
-          type="button"
-          className="button-theme"
-          onClick={() => setFetchAttempt((n) => n + 1)}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (record === undefined) {
-    return (
-      <div className="min-h-screen bg-theme-bg p-4">
-        <div className="flex items-center justify-center h-[calc(100dvh-55px)]">
-          <Loader2 className="w-8 h-8 animate-spin text-theme-text" />
+      <GateScreen>
+        <div className="card flex flex-col items-center gap-4 p-8 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
+            <ShieldAlert className="h-6 w-6 text-red-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-theme-text">{loadError}</p>
+            <p className="mt-1 text-sm text-theme-muted">
+              The vault service may be unreachable. Check your connection and try again.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="button-theme"
+            onClick={() => setFetchAttempt((n) => n + 1)}
+          >
+            Retry
+          </button>
         </div>
-      </div>
+      </GateScreen>
     );
   }
 
@@ -121,11 +175,7 @@ export default function VaultGate() {
   }
 
   if (record !== null && !vaultSessionReady) {
-    return (
-      <div className="flex h-[calc(100dvh-55px)] items-center justify-center bg-theme-bg p-6 text-theme-text">
-        <p>Restoring vault…</p>
-      </div>
-    );
+    return <GateSpinner />;
   }
 
   if (record === null) {
@@ -142,72 +192,66 @@ export default function VaultGate() {
       setBusy(true);
       try {
         const key = await setupMasterPassword(setupPassword);
-        if (session?.user?.id) await saveVaultSessionKey(session.user.id, key);
-        setVaultKey(key);
+        setVaultKey(key, await persistKey(key));
       } catch (e) {
-        const msg = axios.isAxiosError(e) && e.response?.status === 409
-          ? "Vault is already set up. Refresh the page."
-          : "Could not save vault. Try again.";
-        setFormError(msg);
+        setFormError(
+          axios.isAxiosError(e) && e.response?.status === 409
+            ? "Vault is already set up. Refresh the page."
+            : "Could not save vault. Try again.",
+        );
       } finally {
         setBusy(false);
       }
     };
 
     return (
-      <div className="flex justify-center items-center h-[calc(100dvh-55px)] bg-theme-bg">  
-        <div className=" flex max-w-md flex-col gap-4 p-6 text-theme-text">
-          <h1 className="text-xl font-semibold">Create master password</h1>
-          <p className="text-sm text-neutral-400">
-            This encrypts your vault. It is not your account login password.
-          </p>
-          {formError ? <p className="text-sm text-red-500">{formError}</p> : null}
-          <div className="relative">
-            <input
-              type={showMasterPassword ? "text" : "password"}
-              className="cmn-field-input pr-14!"
-              placeholder="Master password (min 8 characters)"
+      <GateScreen>
+        <div className="card p-8">
+          <div className="mb-6 flex flex-col items-center text-center">
+            <div className="icon-tile mb-4 h-12 w-12">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight text-theme-text">
+              Create master password
+            </h1>
+            <p className="mt-1.5 text-sm text-theme-muted">
+              This encrypts your vault and never leaves your device. It is not your account
+              login password, and it cannot be recovered.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {formError ? (
+              <p className="rounded-xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+                {formError}
+              </p>
+            ) : null}
+            <PasswordField
               value={setupPassword}
-              onChange={(e) => setSetupPassword(e.target.value)}
+              onChange={setSetupPassword}
+              placeholder="Master password (min 8 characters)"
               autoComplete="new-password"
-              required
+              autoFocus
             />
-            {
-              showMasterPassword ? (
-                <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowMasterPassword(false)} />
-              ) : (
-                <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowMasterPassword(true)} />
-              )
-            }
-          </div>
-          <div className="relative">
-            <input
-              type={showConfirmPassword ? "text" : "password"}
-              className="cmn-field-input pr-14!"
-              placeholder="Confirm master password"
+            <PasswordField
               value={setupConfirm}
-              onChange={(e) => setSetupConfirm(e.target.value)}
+              onChange={setSetupConfirm}
+              placeholder="Confirm master password"
               autoComplete="new-password"
-              required
+              onEnter={() => void submitSetup()}
             />
-            {
-              showConfirmPassword ? (
-                <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowConfirmPassword(false)} />
-              ) : (
-                <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowConfirmPassword(true)} />
-              )
-            }
+            <button
+              type="button"
+              className="button-theme mt-2 w-full py-2.5"
+              disabled={busy}
+              onClick={() => void submitSetup()}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {busy ? "Saving…" : "Save master password"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="button-theme"
-            disabled={busy}
-            onClick={() => void submitSetup()}
-          >
-            {busy ? "Saving…" : "Save master password"}
-          </button>
         </div>
-      </div>
+      </GateScreen>
     );
   }
 
@@ -220,8 +264,7 @@ export default function VaultGate() {
     setBusy(true);
     try {
       const key = await unlockVault(unlockPassword, record);
-      if (session?.user?.id) await saveVaultSessionKey(session.user.id, key);
-      setVaultKey(key);
+      setVaultKey(key, await persistKey(key));
     } catch {
       setFormError("Wrong master password.");
     } finally {
@@ -230,40 +273,43 @@ export default function VaultGate() {
   };
 
   return (
-    <div className="flex justify-center items-start pt-20 h-[calc(100dvh-55px)] bg-theme-bg">
-      <div className="mx-auto flex max-w-md flex-col gap-4 p-6 text-theme-text items-center w-96">
-        <LockKeyholeOpen className="w-10 h-10 text-neutral-300 p-2.5 border border-neutral-700 rounded-lg" />
-        <p className="text-xl font-semibold">Unlock vault</p>
-        <p className="text-sm text-neutral-400">Enter your master password to continue.</p>
-        {formError ? <p className="text-sm text-red-500">{formError}</p> : null}
-        <div className="w-full relative">
-          <input
-            type={showPassword ? "text" : "password"}
-            className="cmn-field-input w-full pr-10!"
-            placeholder="Master password"
-            value={unlockPassword}
-            onChange={(e) => setUnlockPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void submitUnlock()}
-            autoComplete="current-password"
-            required
-          />
-          {
-            showPassword ? (
-              <EyeOff className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(false)} />
-            ) : (
-              <Eye className="w-9 h-9 text-neutral-200 px-2 rounded-lg cursor-pointer absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setShowPassword(true)} />
-            )
-          }
+    <GateScreen>
+      <div className="card p-8">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="icon-tile mb-4 h-12 w-12">
+            <LockKeyhole className="h-5 w-5" />
+          </div>
+          <h1 className="text-xl font-semibold tracking-tight text-theme-text">Unlock vault</h1>
+          <p className="mt-1.5 text-sm text-theme-muted">
+            Enter your master password to decrypt your passwords.
+          </p>
         </div>
-        <button
-          type="button"
-          className="button-theme w-full text-center"
-          disabled={busy}
-          onClick={() => void submitUnlock()}
-        >
-          {busy ? "Unlocking…" : "Unlock"}
-        </button>
+
+        <div className="flex flex-col gap-3">
+          {formError ? (
+            <p className="rounded-xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+              {formError}
+            </p>
+          ) : null}
+          <PasswordField
+            value={unlockPassword}
+            onChange={setUnlockPassword}
+            placeholder="Master password"
+            autoComplete="current-password"
+            onEnter={() => void submitUnlock()}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="button-theme mt-2 w-full py-2.5"
+            disabled={busy}
+            onClick={() => void submitUnlock()}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {busy ? "Unlocking…" : "Unlock"}
+          </button>
+        </div>
       </div>
-    </div>
+    </GateScreen>
   );
 }

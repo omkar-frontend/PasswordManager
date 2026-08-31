@@ -1,9 +1,9 @@
 const { createClient } = require("@supabase/supabase-js");
-require("dotenv").config();
+const { env } = require("./env");
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
+/** Anon client used only to verify bearer tokens; never for data access. */
+const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 module.exports = supabase;
