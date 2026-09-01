@@ -11,7 +11,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; worker-src 'self' blob:; connect-src 'self' https://yoloedeptslcxbcbufeb.supabase.co wss://yoloedeptslcxbcbufeb.supabase.co API_ORIGIN_PLACEHOLDER; upgrade-insecure-requests"
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; worker-src 'self' blob:; connect-src 'self' https://yoloedeptslcxbcbufeb.supabase.co wss://yoloedeptslcxbcbufeb.supabase.co https://shieldx-q1wn.onrender.com; upgrade-insecure-requests"
         },
         {
           "key": "X-Frame-Options",
