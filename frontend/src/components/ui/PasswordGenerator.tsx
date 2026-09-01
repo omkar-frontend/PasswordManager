@@ -93,7 +93,7 @@ export default function PasswordGenerator({
         <TooltipContent side="top">Generate a password</TooltipContent>
       </Tooltip>
 
-      <PopoverContent side="bottom" align="end" className="w-80 border-hairline bg-surface p-4">
+      <PopoverContent side="bottom" align="end" className="w-80 p-4">
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-1 rounded-xl border border-hairline bg-surface-2/60 p-2.5">
             <p className="min-w-0 flex-1 font-mono text-sm break-all text-theme-text">

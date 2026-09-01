@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -6,6 +6,8 @@ import {
   Check,
   ChevronLeft,
   Copy,
+  EllipsisVertical,
+  FolderInput,
   ExternalLink,
   Eye,
   EyeOff,
@@ -13,9 +15,9 @@ import {
   LayoutGrid,
   List,
   Loader2,
-  Pencil,
   Plus,
   SearchX,
+  Star,
   Trash,
   User,
 } from "lucide-react";
@@ -24,6 +26,12 @@ import { decrypt } from "../crypto/decrypt";
 import { useVault } from "../context/VaultContext";
 import { api } from "../lib/api";
 import { copySecret } from "../lib/clipboard";
+import { relativeDays } from "../lib/relativeTime";
+import {
+  isFavourite,
+  mergeProperties,
+  type AdditionalProperties,
+} from "../lib/itemProperties";
 import NoDataLottie from "@/components/NoDataLottie";
 import Modal from "@/components/ui/Modal";
 import {
@@ -47,10 +55,13 @@ type CategoryItem = {
   username_cipher?: string | null;
   username_iv?: string | null;
   url?: string | null;
+  additional_properties?: AdditionalProperties | null;
   created_at?: string | null;
   updated_at?: string | null;
   deleted_at?: string | null;
 };
+
+type CategoryOption = { category_id?: string; id?: string; category_name?: string };
 
 type Layout = "grid" | "list";
 type SortKey = "created" | "updated" | "title";
@@ -168,12 +179,20 @@ function useItemPassword(item: CategoryItem, vaultKey: CryptoKey | null) {
   };
 }
 
+/** Cards are clickable to edit, so every control inside one must swallow its own click. */
+function stopClick(handler: () => void) {
+  return (e: React.MouseEvent) => {
+    e.stopPropagation();
+    handler();
+  };
+}
+
 function RevealButton({ revealed, onClick }: { revealed: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
       className="icon-button"
-      onClick={onClick}
+      onClick={stopClick(onClick)}
       aria-label={revealed ? "Hide password" : "Show password"}
     >
       {revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -183,30 +202,83 @@ function RevealButton({ revealed, onClick }: { revealed: boolean; onClick: () =>
 
 function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void }) {
   return (
-    <button type="button" className="icon-button" onClick={onClick} aria-label="Copy password">
+    <button
+      type="button"
+      className="icon-button"
+      onClick={stopClick(onClick)}
+      aria-label="Copy password"
+    >
       {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
     </button>
   );
 }
 
-function EditButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button type="button" className="icon-button" onClick={onClick} aria-label="Edit item">
-      <Pencil className="h-4 w-4" />
-    </button>
-  );
-}
+/** Move / favourite / delete. Edit is absent: clicking the card itself does that. */
+function ItemMenu({
+  favourite,
+  onMove,
+  onToggleFavourite,
+  onDelete,
+}: {
+  favourite: boolean;
+  onMove: () => void;
+  onToggleFavourite: () => void;
+  onDelete: () => void;
+}) {
+  const entry =
+    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors";
 
-function DeleteButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      className="icon-button icon-button-danger"
-      onClick={onClick}
-      aria-label="Delete item"
-    >
-      <Trash className="h-4 w-4" />
-    </button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Item options"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="bottom" align="end" className="w-60 p-1.5">
+        {/* PopoverClose so the menu cannot linger behind the dialog it opens. */}
+        <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+          <PopoverClose asChild>
+            <button
+              type="button"
+              className={`${entry} text-theme-text hover:bg-white/[0.06]`}
+              onClick={stopClick(onMove)}
+            >
+              <FolderInput className="h-4 w-4 text-theme-muted" />
+              Move to category
+            </button>
+          </PopoverClose>
+          <PopoverClose asChild>
+            <button
+              type="button"
+              className={`${entry} text-theme-text hover:bg-white/6 text-nowrap`}
+              onClick={stopClick(onToggleFavourite)}
+            >
+              <Star
+                className={`h-4 w-4 ${favourite ? "text-amber-400" : "text-theme-muted"}`}
+                fill={favourite ? "currentColor" : "none"}
+              />
+              {favourite ? "Remove from favourites" : "Add to favourites"}
+            </button>
+          </PopoverClose>
+          <PopoverClose asChild>
+            <button
+              type="button"
+              className={`${entry} text-red-300 hover:bg-red-500/10`}
+              onClick={stopClick(onDelete)}
+            >
+              <Trash className="h-4 w-4" />
+              Delete
+            </button>
+          </PopoverClose>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -218,6 +290,8 @@ type ItemViewProps = {
   highlighted: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleFavourite: () => void;
+  onMove: () => void;
 };
 
 function UsernameLine({ username, compact = false }: { username: string; compact?: boolean }) {
@@ -281,22 +355,54 @@ function UrlLink({ url, iconOnly = false }: { url: string; iconOnly?: boolean })
   );
 }
 
-function ItemCard({ item, vaultKey, username, highlighted, onEdit, onDelete }: ItemViewProps) {
+/** A clickable card is not a button, so focus and Enter/Space have to be added back. */
+function cardActivationProps(onEdit: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: onEdit,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onEdit();
+      }
+    },
+  };
+}
+
+function ItemCard({
+  item,
+  vaultKey,
+  username,
+  highlighted,
+  onEdit,
+  onDelete,
+  onToggleFavourite,
+  onMove,
+}: ItemViewProps) {
   const pw = useItemPassword(item, vaultKey);
 
   return (
     <li
       id={`item-${item.category_item_id}`}
-      className={`card group flex flex-col gap-3 p-4 transition-all hover:border-neutral-700 ${
+      {...cardActivationProps(onEdit)}
+      aria-label={`Edit ${item.title ?? "item"}`}
+      className={`card group flex cursor-pointer flex-col gap-3 p-4 transition-all hover:border-neutral-700 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none ${
         highlighted ? "border-violet-500/60 ring-2 ring-violet-500/40" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <TruncatedText
-            text={item.title ?? "Untitled"}
-            className="font-medium text-theme-text"
-          />
+          <div className="flex min-w-0 items-center gap-1.5">
+            {isFavourite(item) ? (
+              <Star className="h-3.5 w-3.5 shrink-0 text-amber-400" fill="currentColor" />
+            ) : null}
+            <TruncatedText
+              text={item.title ?? "Untitled"}
+              className="font-medium text-theme-text"
+            />
+          </div>
           {username ? <UsernameLine username={username} /> : null}
           {item.description ? (
             <TruncatedText
@@ -307,15 +413,21 @@ function ItemCard({ item, vaultKey, username, highlighted, onEdit, onDelete }: I
           {item.url ? <UrlLink url={item.url} /> : null}
         </div>
         <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
-          <EditButton onClick={onEdit} />
-          <DeleteButton onClick={onDelete} />
+          <ItemMenu
+            favourite={isFavourite(item)}
+            onMove={onMove}
+            onToggleFavourite={onToggleFavourite}
+            onDelete={onDelete}
+          />
         </div>
       </div>
 
       {/* mt-auto keeps this pinned to the bottom, so cards stay aligned whether or not
           the item has a description. */}
+      <p className="mt-auto text-xs text-neutral-600">Updated {relativeDays(item.updated_at)}</p>
+
       {pw.available ? (
-        <div className="mt-auto flex items-center gap-1 border-t border-hairline pt-3">
+        <div className="flex items-center gap-1 border-t border-hairline pt-3">
           <p
             className={`min-w-0 flex-1 font-mono text-sm break-all ${
               pw.decryptErr
@@ -335,7 +447,16 @@ function ItemCard({ item, vaultKey, username, highlighted, onEdit, onDelete }: I
   );
 }
 
-function ItemRow({ item, vaultKey, username, highlighted, onEdit, onDelete }: ItemViewProps) {
+function ItemRow({
+  item,
+  vaultKey,
+  username,
+  highlighted,
+  onEdit,
+  onDelete,
+  onToggleFavourite,
+  onMove,
+}: ItemViewProps) {
   const pw = useItemPassword(item, vaultKey);
   // One secondary line only, to keep rows compact.
   const secondary = [username, item.description].filter(Boolean).join("  ·  ");
@@ -343,18 +464,28 @@ function ItemRow({ item, vaultKey, username, highlighted, onEdit, onDelete }: It
   return (
     <li
       id={`item-${item.category_item_id}`}
-      className={`card flex items-center gap-3 p-3 transition-all hover:border-neutral-700 sm:gap-4 sm:px-4 ${
+      {...cardActivationProps(onEdit)}
+      aria-label={`Edit ${item.title ?? "item"}`}
+      className={`card group flex cursor-pointer items-center gap-3 p-3 transition-all hover:border-neutral-700 focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:outline-none sm:gap-4 sm:px-4 ${
         highlighted ? "border-violet-500/60 ring-2 ring-violet-500/40" : ""
       }`}
     >
       <div className="min-w-0 flex-1">
-        <TruncatedText text={item.title ?? "Untitled"} className="font-medium text-theme-text" />
+        <div className="flex min-w-0 items-center gap-1.5">
+          {isFavourite(item) ? (
+            <Star className="h-3.5 w-3.5 shrink-0 text-amber-400" fill="currentColor" />
+          ) : null}
+          <TruncatedText text={item.title ?? "Untitled"} className="font-medium text-theme-text" />
+        </div>
         {secondary ? (
           <TruncatedText text={secondary} className="mt-0.5 text-sm text-theme-muted" />
         ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        <span className="mr-2 hidden text-xs whitespace-nowrap text-neutral-600 lg:inline">
+          {relativeDays(item.updated_at)}
+        </span>
         {item.url ? <UrlLink url={item.url} iconOnly /> : null}
         {pw.available ? (
           <>
@@ -381,8 +512,12 @@ function ItemRow({ item, vaultKey, username, highlighted, onEdit, onDelete }: It
             <RevealButton revealed={pw.revealed} onClick={() => void pw.toggleReveal()} />
           </>
         ) : null}
-        <EditButton onClick={onEdit} />
-        <DeleteButton onClick={onDelete} />
+        <ItemMenu
+          favourite={isFavourite(item)}
+          onMove={onMove}
+          onToggleFavourite={onToggleFavourite}
+          onDelete={onDelete}
+        />
       </div>
     </li>
   );
@@ -437,7 +572,7 @@ function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (sort: SortKey)
           <span className="hidden sm:inline">{active.label}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent side="bottom" align="end" className="w-52 border-hairline bg-surface p-1.5">
+      <PopoverContent side="bottom" align="end" className="w-52 p-1.5">
         <div className="flex flex-col gap-1">
           {SORT_OPTIONS.map((option) => (
             <PopoverClose asChild key={option.value}>
@@ -507,6 +642,12 @@ export default function CategoryItems() {
   const [query, setQuery] = useState("");
   /** Usernames are encrypted at rest but shown by default, so they decrypt on load. */
   const [usernames, setUsernames] = useState<Map<string, string>>(new Map());
+  /** Destinations for the move dropdown; fetched the first time an item is edited. */
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[] | null>(null);
+  const categoriesRequested = useRef(false);
+  const [moveItem, setMoveItem] = useState<CategoryItem | null>(null);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [moveLoading, setMoveLoading] = useState(false);
   const [layout, setLayout] = useState<Layout>(readStoredLayout);
   const [sort, setSort] = useState<SortKey>(readStoredSort);
   // Set when arriving from a vault-wide search result, to point out the item that matched.
@@ -549,7 +690,9 @@ export default function CategoryItems() {
     } else {
       sorted.sort((a, b) => newestFirst(a.created_at, b.created_at));
     }
-    return sorted;
+    // Favourites pin to the top of whichever ordering is active, rather than being a
+    // sort mode of their own. Array.prototype.sort is stable, so ties keep the order above.
+    return sorted.sort((a, b) => Number(isFavourite(b)) - Number(isFavourite(a)));
   }, [shieldItems, normalizedQuery, sort, usernames]);
 
   const fetchShieldItems = async () => {
@@ -628,6 +771,20 @@ export default function CategoryItems() {
     setShowFormPassword(false);
     setClearPassword(false);
     setIsModalOpen(true);
+  };
+
+  /** Only needed for the move dropdown, so it is not fetched until an item is edited. */
+  const ensureCategoryOptions = async () => {
+    if (categoriesRequested.current) return;
+    categoriesRequested.current = true;
+    try {
+      const res = await api.get<CategoryOption[]>("/categories");
+      setCategoryOptions(res.data);
+    } catch (err) {
+      console.error(err);
+      categoriesRequested.current = false;
+      setCategoryOptions([]);
+    }
   };
 
   const openEditModal = (item: CategoryItem) => {
@@ -723,6 +880,68 @@ export default function CategoryItems() {
   const closeDeleteModal = () => {
     if (deleteLoading) return;
     setDeleteConfirmItem(null);
+  };
+
+  /**
+   * Optimistic: a star should feel instant. The whole bag is sent because a JSONB write
+   * replaces the column, so merging locally is what preserves any other keys on the item.
+   */
+  const toggleFavourite = async (item: CategoryItem) => {
+    const next = !isFavourite(item);
+    const properties = mergeProperties(item, { favourite: next || undefined });
+    const previous = shieldItems;
+
+    setShieldItems((items) =>
+      items.map((candidate) =>
+        candidate.category_item_id === item.category_item_id
+          ? { ...candidate, additional_properties: properties }
+          : candidate,
+      ),
+    );
+
+    try {
+      await api.put(`/category-items/${item.category_item_id}`, {
+        additional_properties: properties,
+      });
+    } catch (err) {
+      console.error(err);
+      setShieldItems(previous);
+      toast.error("Could not update favourite. Please try again.");
+    }
+  };
+
+  const openMoveModal = (item: CategoryItem) => {
+    void ensureCategoryOptions();
+    setMoveItem(item);
+    setMoveTarget(item.category_id ?? categoryId ?? "");
+  };
+
+  const closeMoveModal = () => {
+    if (moveLoading) return;
+    setMoveItem(null);
+  };
+
+  const confirmMove = async () => {
+    if (!moveItem || !moveTarget || moveTarget === moveItem.category_id) return;
+
+    setMoveLoading(true);
+    try {
+      await api.put(`/category-items/${moveItem.category_item_id}`, {
+        category_id: moveTarget,
+      });
+      const name =
+        categoryOptions?.find((c) => (c.category_id ?? c.id) === moveTarget)?.category_name ??
+        "another category";
+      setMoveItem(null);
+      // The item leaves this category, so the list must reload or it lingers on screen.
+      await fetchShieldItems();
+      toast.success(`Moved to ${name}`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not move item. Please try again.");
+    } finally {
+      setMoveLoading(false);
+    }
   };
 
   const restoreItem = async (categoryItemId: string) => {
@@ -874,6 +1093,8 @@ export default function CategoryItems() {
                 highlighted={highlighted === item.category_item_id}
                 onEdit={() => openEditModal(item)}
                 onDelete={() => setDeleteConfirmItem(item)}
+                onToggleFavourite={() => void toggleFavourite(item)}
+                onMove={() => openMoveModal(item)}
               />
             ))}
           </ul>
@@ -993,6 +1214,63 @@ export default function CategoryItems() {
           placeholder="Notes (optional)"
           rows={3}
         />
+      </Modal>
+
+      <Modal
+        open={moveItem !== null}
+        title="Move item"
+        description={`Choose a category for “${moveItem?.title ?? "this item"}”.`}
+        icon={<FolderInput className="h-4 w-4" />}
+        onClose={closeMoveModal}
+        closeDisabled={moveLoading}
+        footer={
+          <>
+            <button
+              type="button"
+              className="button-ghost"
+              onClick={closeMoveModal}
+              disabled={moveLoading}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button-theme"
+              onClick={() => void confirmMove()}
+              disabled={
+                moveLoading ||
+                categoryOptions === null ||
+                !moveTarget ||
+                moveTarget === moveItem?.category_id
+              }
+            >
+              {moveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {moveLoading ? "Moving…" : "Move"}
+            </button>
+          </>
+        }
+      >
+        <select
+          value={moveTarget}
+          onChange={(e) => setMoveTarget(e.target.value)}
+          className="cmn-field-input cursor-pointer"
+          disabled={categoryOptions === null || moveLoading}
+          aria-label="Destination category"
+        >
+          {categoryOptions === null ? (
+            <option value={moveTarget}>Loading categories…</option>
+          ) : (
+            categoryOptions.map((option) => {
+              const value = option.category_id ?? option.id ?? "";
+              return (
+                <option key={value} value={value}>
+                  {option.category_name ?? "Untitled"}
+                  {value === moveItem?.category_id ? "  (current)" : ""}
+                </option>
+              );
+            })
+          )}
+        </select>
       </Modal>
 
       <Modal

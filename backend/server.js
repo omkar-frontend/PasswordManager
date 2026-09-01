@@ -5,7 +5,14 @@ const rateLimit = require("express-rate-limit");
 
 const { env } = require("./env");
 const { authenticate } = require("./auth");
-const { LIMITS, trimmed, requiredString, safeUrl, dbFail } = require("./validation");
+const {
+  LIMITS,
+  trimmed,
+  requiredString,
+  safeUrl,
+  readAdditionalProperties,
+  dbFail,
+} = require("./validation");
 
 const app = express();
 
@@ -280,6 +287,9 @@ app.post("/category-items", async (req, res) => {
   const urlResult = safeUrl(req.body?.url);
   if (urlResult.error) return res.status(400).json({ error: urlResult.error });
 
+  const extra = readAdditionalProperties(req.body?.additional_properties);
+  if (extra.error) return res.status(400).json({ error: extra.error });
+
   // The item inherits the caller's user_id, so confirm the parent category is theirs.
   const { data: category, error: catErr } = await table(req, "categories")
     .select("category_id")
@@ -300,6 +310,7 @@ app.post("/category-items", async (req, res) => {
       username_cipher: usernamePair.present ? usernamePair.cipher : null,
       username_iv: usernamePair.present ? usernamePair.iv : null,
       url: urlResult.url,
+      additional_properties: extra.present ? extra.value : null,
       description: description || null,
       // Explicit, so a stray column default can never create an item pre-trashed.
       deleted_at: null,
@@ -352,6 +363,32 @@ app.put("/category-items/:categoryItemId", async (req, res) => {
     const urlResult = safeUrl(body.url);
     if (urlResult.error) return res.status(400).json({ error: urlResult.error });
     updates.url = urlResult.url;
+  }
+
+  // Replaces the whole object rather than patching one key: PostgREST cannot express
+  // jsonb_set, so callers send the merged object they want stored.
+  const extra = readAdditionalProperties(body.additional_properties);
+  if (extra.error) return res.status(400).json({ error: extra.error });
+  if (extra.present) updates.additional_properties = extra.value;
+
+  // Moving between categories. The destination must be one the caller owns, otherwise
+  // an item could be pushed into someone else's category.
+  if (body.category_id !== undefined) {
+    const targetCategoryId = requiredString(body.category_id, LIMITS.id);
+    if (!targetCategoryId) {
+      return res.status(400).json({ error: "category_id must be a non-empty id" });
+    }
+
+    const { data: category, error: catErr } = await table(req, "categories")
+      .select("category_id")
+      .eq("category_id", targetCategoryId)
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (catErr) return dbFail(res, "PUT /category-items category lookup", catErr);
+    if (!category) return res.status(404).json({ error: "category not found" });
+
+    updates.category_id = targetCategoryId;
   }
 
   if (Object.keys(updates).length === 0) {

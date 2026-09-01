@@ -26,6 +26,7 @@ import TruncatedText from "@/components/ui/TruncatedText";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
+import { relativeDays } from "../lib/relativeTime";
 
 type CategoryRow = {
   category_id?: string;
@@ -46,13 +47,7 @@ type ItemRow = {
 /** Mirrors TRASH_RETENTION_DAYS on the server. */
 const TRASH_RETENTION_DAYS = 30;
 
-function formatDeletedAt(deletedAt: string | null | undefined): string {
-  if (!deletedAt) return "recently";
-  const days = Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  return `${days} days ago`;
-}
+
 
 function CategorySkeleton() {
   return (
@@ -616,7 +611,7 @@ export default function Categories() {
                       </span>
                     ) : null}
                     <span className="text-xs text-theme-muted">
-                      Deleted {formatDeletedAt(item.deleted_at)}
+                      Deleted {relativeDays(item.deleted_at)}
                     </span>
                   </div>
                 </div>

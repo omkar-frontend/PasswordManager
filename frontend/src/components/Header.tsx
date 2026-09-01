@@ -1,7 +1,10 @@
-import { Lock, LogOut, Shield } from "lucide-react";
+import { useState } from "react";
+import { Download, Lock, LogOut, Shield, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./ui/popover";
+import ExportDialog from "./ExportDialog";
+import ImportDialog from "./ImportDialog";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { useVault } from "../context/VaultContext";
@@ -10,6 +13,8 @@ export default function Header() {
   const navigate = useNavigate();
   const { user, setUser, setSession } = useAuth();
   const { vaultKey, lockVault } = useVault();
+  const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const email = user?.email ?? "";
   const initial = email.trim().charAt(0).toUpperCase() || "?";
@@ -49,7 +54,7 @@ export default function Header() {
               {initial}
             </button>
           </PopoverTrigger>
-          <PopoverContent side="bottom" align="end" className="w-60 border-hairline bg-surface p-1.5">
+          <PopoverContent side="bottom" align="end" className="w-60 p-1.5">
             <div className="flex flex-col gap-1">
               <div className="px-2.5 py-2">
                 <p className="text-xs text-theme-muted">Signed in as</p>
@@ -57,29 +62,69 @@ export default function Header() {
               </div>
               <div className="h-px bg-hairline" />
 
-              {/* Surfaces the idle auto-lock as something you can also trigger yourself. */}
-              <button
-                type="button"
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-theme-text transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={lockVault}
-                disabled={!vaultKey}
-              >
-                <Lock className="h-4 w-4 text-theme-muted" />
-                Lock vault
-              </button>
+              {/* Both need the vault key to encrypt or decrypt, so they lock out when locked. */}
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-theme-text transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setExportOpen(true)}
+                  disabled={!vaultKey}
+                >
+                  <Download className="h-4 w-4 text-theme-muted" />
+                  Export vault
+                </button>
+              </PopoverClose>
 
-              <button
-                type="button"
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/10"
-                onClick={() => void handleLogout()}
-              >
-                <LogOut className="h-4 w-4" />
-                Log out
-              </button>
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-theme-text transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setImportOpen(true)}
+                  disabled={!vaultKey}
+                >
+                  <Upload className="h-4 w-4 text-theme-muted" />
+                  Import items
+                </button>
+              </PopoverClose>
+
+              <div className="h-px bg-hairline" />
+
+              {/* Surfaces the idle auto-lock as something you can also trigger yourself. */}
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-theme-text transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={lockVault}
+                  disabled={!vaultKey}
+                >
+                  <Lock className="h-4 w-4 text-theme-muted" />
+                  Lock vault
+                </button>
+              </PopoverClose>
+
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/10"
+                  onClick={() => void handleLogout()}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Log out
+                </button>
+              </PopoverClose>
             </div>
           </PopoverContent>
         </Popover>
       </nav>
+
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        // Imported items land on pages this component does not own; a reload is the
+        // simplest way to make every list and count correct at once.
+        onImported={() => window.location.reload()}
+      />
     </header>
   );
 }

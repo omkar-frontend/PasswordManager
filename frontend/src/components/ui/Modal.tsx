@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 type ModalProps = {
@@ -43,7 +44,13 @@ export default function Modal({
 
   if (!open) return null;
 
-  return (
+  /**
+   * Rendered into <body> rather than in place. An ancestor with a filter, backdrop-filter
+   * or transform becomes the containing block for `position: fixed` descendants — so a
+   * dialog rendered inside the blurred sticky header would anchor to the header instead
+   * of the viewport, and its overlay would cover only that strip.
+   */
+  return createPortal(
     <div
       className="modal-backdrop"
       onClick={() => {
@@ -83,6 +90,7 @@ export default function Modal({
 
         <div className="flex justify-end gap-2">{footer}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
