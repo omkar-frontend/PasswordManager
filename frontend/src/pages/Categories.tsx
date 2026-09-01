@@ -9,6 +9,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  RotateCcw,
   SearchX,
   Trash,
 } from "lucide-react";
@@ -21,6 +22,8 @@ import {
 import NoDataLottie from "@/components/NoDataLottie";
 import Modal from "@/components/ui/Modal";
 import SearchInput from "@/components/ui/SearchInput";
+import TruncatedText from "@/components/ui/TruncatedText";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 
@@ -37,7 +40,19 @@ type ItemRow = {
   category_id?: string;
   title?: string | null;
   description?: string | null;
+  deleted_at?: string | null;
 };
+
+/** Mirrors TRASH_RETENTION_DAYS on the server. */
+const TRASH_RETENTION_DAYS = 30;
+
+function formatDeletedAt(deletedAt: string | null | undefined): string {
+  if (!deletedAt) return "recently";
+  const days = Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
 
 function CategorySkeleton() {
   return (
@@ -75,6 +90,9 @@ export default function Categories() {
   const [allItems, setAllItems] = useState<ItemRow[] | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<ItemRow[] | null>(null);
+  const [trashBusy, setTrashBusy] = useState<string | null>(null);
   const itemsRequested = useRef(false);
   const navigate = useNavigate();
   const { user, loading } = useAuth();
@@ -236,6 +254,54 @@ export default function Categories() {
     }
   };
 
+  /** Vault-wide: no category_id filter, so trashed items from every category appear. */
+  const loadTrash = async () => {
+    try {
+      const res = await api.get<{ retention_days: number; items: ItemRow[] }>("/trash");
+      setTrashItems(res.data.items);
+    } catch (err) {
+      console.error(err);
+      setTrashItems([]);
+      toast.error("Could not load trash");
+    }
+  };
+
+  const openTrash = () => {
+    setTrashOpen(true);
+    setTrashItems(null);
+    void loadTrash();
+  };
+
+  const restoreItem = async (categoryItemId: string) => {
+    setTrashBusy(categoryItemId);
+    try {
+      await api.post(`/category-items/${categoryItemId}/restore`);
+      await loadTrash();
+      // Item counts change, and the restored item becomes searchable again.
+      await fetchCategories();
+      toast.success("Item restored");
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not restore item. Please try again.");
+    } finally {
+      setTrashBusy(null);
+    }
+  };
+
+  const purgeItem = async (categoryItemId: string) => {
+    setTrashBusy(categoryItemId);
+    try {
+      await api.delete(`/trash/${categoryItemId}`);
+      await loadTrash();
+      toast.success("Item deleted permanently");
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not delete item. Please try again.");
+    } finally {
+      setTrashBusy(null);
+    }
+  };
+
   const openItem = (item: ItemRow) => {
     if (!item.category_id) return;
     navigate(`/app/category/${item.category_id}`, {
@@ -346,13 +412,27 @@ export default function Categories() {
         </div>
 
         {!compLoading && categories.length > 0 ? (
-          <div className="mb-6">
+          <div className="mb-6 flex flex-wrap items-center gap-3">
             <SearchInput
               value={query}
               onChange={setQuery}
               placeholder="Search categories and items"
-              hotkeyEnabled={!isModalOpen && deleteConfirmCategory === null}
+              hotkeyEnabled={!isModalOpen && deleteConfirmCategory === null && !trashOpen}
             />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="button-ghost ml-auto shrink-0 px-3"
+                  onClick={openTrash}
+                  aria-label="Open trash"
+                >
+                  <Trash className="h-4 w-4 text-theme-muted" />
+                  <span className="hidden sm:inline">Trash</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Deleted items from every category</TooltipContent>
+            </Tooltip>
           </div>
         ) : null}
 
@@ -495,6 +575,77 @@ export default function Categories() {
           placeholder="e.g. Work, Banking, Social"
           autoFocus
         />
+      </Modal>
+
+      <Modal
+        open={trashOpen}
+        title="Trash"
+        description={`Deleted items from every category. Kept for ${TRASH_RETENTION_DAYS} days, then removed permanently.`}
+        icon={<Trash className="h-4 w-4" />}
+        onClose={() => setTrashOpen(false)}
+        footer={
+          <button type="button" className="button-ghost" onClick={() => setTrashOpen(false)}>
+            Close
+          </button>
+        }
+      >
+        {trashItems === null ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-theme-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading trash…
+          </div>
+        ) : trashItems.length === 0 ? (
+          <p className="py-4 text-sm text-theme-muted">Nothing in the trash.</p>
+        ) : (
+          <ul className="-mr-1 flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
+            {trashItems.map((item) => (
+              <li
+                key={item.category_item_id}
+                className="flex items-center gap-2 rounded-xl border border-hairline bg-surface-2/50 p-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <TruncatedText
+                    text={item.title ?? "Untitled"}
+                    className="text-sm font-medium text-theme-text"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    {item.category_id ? (
+                      <span className="chip">
+                        <Folder className="h-3 w-3" />
+                        {categoryNameById.get(item.category_id) ?? "Category"}
+                      </span>
+                    ) : null}
+                    <span className="text-xs text-theme-muted">
+                      Deleted {formatDeletedAt(item.deleted_at)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => void restoreItem(item.category_item_id)}
+                  disabled={trashBusy === item.category_item_id}
+                  aria-label="Restore item"
+                >
+                  {trashBusy === item.category_item_id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button icon-button-danger"
+                  onClick={() => void purgeItem(item.category_item_id)}
+                  disabled={trashBusy === item.category_item_id}
+                  aria-label="Delete permanently"
+                >
+                  <Trash className="h-4 w-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </Modal>
 
       <Modal

@@ -8,6 +8,7 @@ const LIMITS = {
   iv: 64,
   salt: 128,
   id: 64,
+  url: 2048,
 };
 
 function trimmed(value) {
@@ -27,4 +28,20 @@ function dbFail(res, scope, error) {
   return res.status(500).json({ error: "Request failed. Please try again." });
 }
 
-module.exports = { LIMITS, trimmed, requiredString, dbFail };
+/** Only http(s) may be stored: the URL is rendered as a link, and javascript: would execute. */
+function safeUrl(value) {
+  const text = trimmed(value);
+  if (!text) return { url: null };
+  if (text.length > LIMITS.url) return { error: "url is too long" };
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { error: "url must start with http:// or https://" };
+    }
+    return { url: parsed.toString() };
+  } catch {
+    return { error: "url is not valid" };
+  }
+}
+
+module.exports = { LIMITS, trimmed, requiredString, safeUrl, dbFail };

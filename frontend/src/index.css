@@ -236,8 +236,13 @@
   }
 
   /* ---- Overlays ----------------------------------------------------- */
+  /* Overlay layer scale. All of these portal to document.body, so DOM order cannot be
+     relied on — each layer is explicit:
+        100  modal / dialog        (.modal-backdrop)
+        200  popover, dropdown     (ui/popover.tsx)     — opens from inside a modal
+        300  tooltip               (ui/tooltip.tsx)     — opens from inside a popover
+     A layer must sit above whatever can open it, which is why popovers outrank modals. */
   .modal-backdrop {
-    /* Above Radix portal content (z-50), which renders after the app tree in the DOM. */
     @apply fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md
            animate-in fade-in duration-150;
   }

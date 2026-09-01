@@ -5,7 +5,7 @@ const rateLimit = require("express-rate-limit");
 
 const { env } = require("./env");
 const { authenticate } = require("./auth");
-const { LIMITS, trimmed, requiredString, dbFail } = require("./validation");
+const { LIMITS, trimmed, requiredString, safeUrl, dbFail } = require("./validation");
 
 const app = express();
 
@@ -52,7 +52,8 @@ app.get("/categories", async (req, res) => {
 
   const { data: itemRows, error: itemError } = await table(req, "category_items")
     .select("category_id")
-    .eq("user_id", req.user.id);
+    .eq("user_id", req.user.id)
+    .is("deleted_at", null);
 
   if (itemError) return dbFail(res, "GET /categories items", itemError);
 
@@ -129,6 +130,8 @@ app.delete("/categories/:categoryId", async (req, res) => {
 
   // Not atomic: PostgREST has no multi-statement transaction. Items go first so a failure
   // here leaves the category intact and the delete can simply be retried.
+  // This removes trashed items too — they still hold a foreign key to the category, and
+  // `categories` has no deleted_at column, so the category cannot be soft-deleted itself.
   const { error: itemsErr } = await table(req, "category_items")
     .delete()
     .eq("category_id", categoryId)
@@ -162,6 +165,7 @@ app.get("/category-items", async (req, res) => {
   let query = table(req, "category_items")
     .select("*")
     .eq("user_id", req.user.id)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .order("category_item_id", { ascending: true });
 
@@ -212,13 +216,19 @@ app.post("/user-security", async (req, res) => {
   res.status(201).json(data);
 });
 
-/** Both cipher fields must be present together, or both explicitly null to clear. */
-function readCipherPair(body) {
-  const { password_cipher: cipherRaw, password_iv: ivRaw } = body;
+/**
+ * Reads a `<field>_cipher` / `<field>_iv` pair. Both must arrive together, or both be
+ * explicitly null to clear the value. Used for password and username alike.
+ */
+function readCipherPair(body, field) {
+  const cipherKey = `${field}_cipher`;
+  const ivKey = `${field}_iv`;
+  const cipherRaw = body[cipherKey];
+  const ivRaw = body[ivKey];
 
   if (cipherRaw === null || ivRaw === null) {
-    if (cipherRaw !== null && cipherRaw !== undefined) return { error: "password_cipher and password_iv must be cleared together" };
-    if (ivRaw !== null && ivRaw !== undefined) return { error: "password_cipher and password_iv must be cleared together" };
+    if (cipherRaw !== null && cipherRaw !== undefined) return { error: `${cipherKey} and ${ivKey} must be cleared together` };
+    if (ivRaw !== null && ivRaw !== undefined) return { error: `${cipherKey} and ${ivKey} must be cleared together` };
     return { cipher: null, iv: null, present: true };
   }
 
@@ -226,8 +236,23 @@ function readCipherPair(body) {
 
   const cipher = requiredString(cipherRaw, LIMITS.cipher);
   const iv = requiredString(ivRaw, LIMITS.iv);
-  if (!cipher || !iv) return { error: "password_cipher and password_iv must be set together" };
+  if (!cipher || !iv) return { error: `${cipherKey} and ${ivKey} must be set together` };
   return { cipher, iv, present: true };
+}
+
+/** Trash retention. Expired rows are purged the next time the trash is opened. */
+const TRASH_RETENTION_DAYS = 30;
+
+async function purgeExpiredTrash(req) {
+  const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await table(req, "category_items")
+    .delete()
+    .eq("user_id", req.user.id)
+    .not("deleted_at", "is", null)
+    .lt("deleted_at", cutoff);
+
+  // Best effort: failing to purge must not stop the trash from being listed.
+  if (error) console.error("[purgeExpiredTrash]", error);
 }
 
 app.post("/category-items", async (req, res) => {
@@ -246,8 +271,14 @@ app.post("/category-items", async (req, res) => {
     return res.status(400).json({ error: "description is too long" });
   }
 
-  const cipherPair = readCipherPair(req.body ?? {});
-  if (cipherPair.error) return res.status(400).json({ error: cipherPair.error });
+  const passwordPair = readCipherPair(req.body ?? {}, "password");
+  if (passwordPair.error) return res.status(400).json({ error: passwordPair.error });
+
+  const usernamePair = readCipherPair(req.body ?? {}, "username");
+  if (usernamePair.error) return res.status(400).json({ error: usernamePair.error });
+
+  const urlResult = safeUrl(req.body?.url);
+  if (urlResult.error) return res.status(400).json({ error: urlResult.error });
 
   // The item inherits the caller's user_id, so confirm the parent category is theirs.
   const { data: category, error: catErr } = await table(req, "categories")
@@ -264,9 +295,14 @@ app.post("/category-items", async (req, res) => {
       user_id: req.user.id,
       category_id: categoryId,
       title,
-      password_cipher: cipherPair.present ? cipherPair.cipher : null,
-      password_iv: cipherPair.present ? cipherPair.iv : null,
+      password_cipher: passwordPair.present ? passwordPair.cipher : null,
+      password_iv: passwordPair.present ? passwordPair.iv : null,
+      username_cipher: usernamePair.present ? usernamePair.cipher : null,
+      username_iv: usernamePair.present ? usernamePair.iv : null,
+      url: urlResult.url,
       description: description || null,
+      // Explicit, so a stray column default can never create an item pre-trashed.
+      deleted_at: null,
     })
     .select()
     .maybeSingle();
@@ -298,11 +334,24 @@ app.put("/category-items/:categoryItemId", async (req, res) => {
     updates.description = description || null;
   }
 
-  const cipherPair = readCipherPair(body);
-  if (cipherPair.error) return res.status(400).json({ error: cipherPair.error });
-  if (cipherPair.present) {
-    updates.password_cipher = cipherPair.cipher;
-    updates.password_iv = cipherPair.iv;
+  const passwordPair = readCipherPair(body, "password");
+  if (passwordPair.error) return res.status(400).json({ error: passwordPair.error });
+  if (passwordPair.present) {
+    updates.password_cipher = passwordPair.cipher;
+    updates.password_iv = passwordPair.iv;
+  }
+
+  const usernamePair = readCipherPair(body, "username");
+  if (usernamePair.error) return res.status(400).json({ error: usernamePair.error });
+  if (usernamePair.present) {
+    updates.username_cipher = usernamePair.cipher;
+    updates.username_iv = usernamePair.iv;
+  }
+
+  if (body.url !== undefined) {
+    const urlResult = safeUrl(body.url);
+    if (urlResult.error) return res.status(400).json({ error: urlResult.error });
+    updates.url = urlResult.url;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -313,6 +362,7 @@ app.put("/category-items/:categoryItemId", async (req, res) => {
     .update(updates)
     .eq("category_item_id", categoryItemId)
     .eq("user_id", req.user.id)
+    .is("deleted_at", null)
     .select()
     .maybeSingle();
 
@@ -321,7 +371,74 @@ app.put("/category-items/:categoryItemId", async (req, res) => {
   res.json(data);
 });
 
+/** Soft delete: the row is kept for TRASH_RETENTION_DAYS so it can be restored. */
 app.delete("/category-items/:categoryItemId", async (req, res) => {
+  const categoryItemId = requiredString(req.params.categoryItemId, LIMITS.id);
+  if (!categoryItemId) {
+    return res.status(400).json({ error: "category_item_id is required" });
+  }
+
+  const { data, error } = await table(req, "category_items")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("category_item_id", categoryItemId)
+    .eq("user_id", req.user.id)
+    .is("deleted_at", null)
+    .select("category_item_id, deleted_at")
+    .maybeSingle();
+
+  if (error) return dbFail(res, "DELETE /category-items", error);
+  if (!data) return res.status(404).json({ error: "item not found" });
+
+  res.json({ category_item_id: data.category_item_id, deleted_at: data.deleted_at });
+});
+
+app.post("/category-items/:categoryItemId/restore", async (req, res) => {
+  const categoryItemId = requiredString(req.params.categoryItemId, LIMITS.id);
+  if (!categoryItemId) {
+    return res.status(400).json({ error: "category_item_id is required" });
+  }
+
+  const { data, error } = await table(req, "category_items")
+    .update({ deleted_at: null })
+    .eq("category_item_id", categoryItemId)
+    .eq("user_id", req.user.id)
+    .not("deleted_at", "is", null)
+    .select()
+    .maybeSingle();
+
+  if (error) return dbFail(res, "POST /category-items restore", error);
+  if (!data) return res.status(404).json({ error: "item not found in trash" });
+
+  res.json(data);
+});
+
+/** Trashed items, newest first. Anything past retention is purged on the way through. */
+app.get("/trash", async (req, res) => {
+  await purgeExpiredTrash(req);
+
+  const rawCategoryId = req.query.category_id;
+  let categoryId = null;
+  if (rawCategoryId !== undefined) {
+    categoryId = requiredString(rawCategoryId, LIMITS.id);
+    if (!categoryId) return res.status(400).json({ error: "category_id must be a non-empty id" });
+  }
+
+  let query = table(req, "category_items")
+    .select("*")
+    .eq("user_id", req.user.id)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  if (categoryId) query = query.eq("category_id", categoryId);
+
+  const { data, error } = await query;
+  if (error) return dbFail(res, "GET /trash", error);
+
+  res.json({ retention_days: TRASH_RETENTION_DAYS, items: data ?? [] });
+});
+
+/** Permanent removal, only ever for something already in the trash. */
+app.delete("/trash/:categoryItemId", async (req, res) => {
   const categoryItemId = requiredString(req.params.categoryItemId, LIMITS.id);
   if (!categoryItemId) {
     return res.status(400).json({ error: "category_item_id is required" });
@@ -331,17 +448,19 @@ app.delete("/category-items/:categoryItemId", async (req, res) => {
     .select("category_item_id")
     .eq("category_item_id", categoryItemId)
     .eq("user_id", req.user.id)
+    .not("deleted_at", "is", null)
     .maybeSingle();
 
-  if (fetchErr) return dbFail(res, "DELETE /category-items lookup", fetchErr);
-  if (!existing) return res.status(404).json({ error: "item not found" });
+  if (fetchErr) return dbFail(res, "DELETE /trash lookup", fetchErr);
+  if (!existing) return res.status(404).json({ error: "item not found in trash" });
 
   const { error: delErr } = await table(req, "category_items")
     .delete()
     .eq("category_item_id", categoryItemId)
-    .eq("user_id", req.user.id);
+    .eq("user_id", req.user.id)
+    .not("deleted_at", "is", null);
 
-  if (delErr) return dbFail(res, "DELETE /category-items", delErr);
+  if (delErr) return dbFail(res, "DELETE /trash", delErr);
   res.status(204).end();
 });
 

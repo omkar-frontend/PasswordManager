@@ -30,7 +30,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-theme-bg/80 backdrop-blur-xl">
       <nav className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5" onClick={() => navigate("/")}>
           <div className="icon-tile h-8 w-8">
             <Shield className="h-4 w-4" strokeWidth={2} />
           </div>

@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   Copy,
+  ExternalLink,
   Eye,
   EyeOff,
   KeyRound,
@@ -16,6 +17,7 @@ import {
   Plus,
   SearchX,
   Trash,
+  User,
 } from "lucide-react";
 import { encrypt } from "../crypto/encrypt";
 import { decrypt } from "../crypto/decrypt";
@@ -30,6 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import PasswordGenerator from "@/components/ui/PasswordGenerator";
 import SearchInput from "@/components/ui/SearchInput";
 import TruncatedText from "@/components/ui/TruncatedText";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -41,12 +44,19 @@ type CategoryItem = {
   description?: string | null;
   password_cipher?: string | null;
   password_iv?: string | null;
+  username_cipher?: string | null;
+  username_iv?: string | null;
+  url?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  deleted_at?: string | null;
 };
 
 type Layout = "grid" | "list";
 type SortKey = "created" | "updated" | "title";
+
+/** Mirrors TRASH_RETENTION_DAYS on the server. */
+const TRASH_RETENTION_DAYS = 30;
 
 const LAYOUT_KEY = "shieldx_items_layout";
 const SORT_STORAGE_KEY = "shieldx_items_sort";
@@ -78,6 +88,19 @@ function readStoredSort(): SortKey {
 /** Missing timestamps sort last rather than throwing off the comparison. */
 function newestFirst(a: string | null | undefined, b: string | null | undefined): number {
   return new Date(b ?? 0).getTime() - new Date(a ?? 0).getTime();
+}
+
+/** Only http(s) is ever rendered as a link; the backend enforces the same rule on write. */
+function safeHref(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
+/** Accepts "github.com" and turns it into a URL the backend will accept. */
+function normalizeUrlInput(value: string): string {
+  const text = value.trim();
+  if (!text) return "";
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
 }
 
 function hasEncryptedPassword(item: CategoryItem): boolean {
@@ -190,12 +213,75 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
 type ItemViewProps = {
   item: CategoryItem;
   vaultKey: CryptoKey | null;
+  /** Already decrypted by the page, so every card does not repeat the work. */
+  username?: string;
   highlighted: boolean;
   onEdit: () => void;
   onDelete: () => void;
 };
 
-function ItemCard({ item, vaultKey, highlighted, onEdit, onDelete }: ItemViewProps) {
+function UsernameLine({ username, compact = false }: { username: string; compact?: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(username);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Could not copy to clipboard");
+    }
+  };
+
+  return (
+    <div className={`flex min-w-0 items-center gap-1 ${compact ? "" : "mt-0.5"}`}>
+      <User className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+      <TruncatedText text={username} className="text-sm text-theme-muted" />
+      {/* opacity-60 rather than 0: touch devices have no hover state to reveal it. */}
+      <button
+        type="button"
+        className="icon-button -my-1 p-1 opacity-60 transition-opacity group-hover:opacity-100"
+        onClick={(e) => void copy(e)}
+        aria-label="Copy username"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+function UrlLink({ url, iconOnly = false }: { url: string; iconOnly?: boolean }) {
+  const href = safeHref(url);
+  if (!href) return null;
+
+  const label = href.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={
+            iconOnly
+              ? "icon-button"
+              : "mt-0.5 flex min-w-0 items-center gap-1 text-sm text-violet-400 transition-colors hover:text-violet-300"
+          }
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Open ${label}`}
+        >
+          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+          {iconOnly ? null : <span className="truncate">{label}</span>}
+        </a>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{href}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ItemCard({ item, vaultKey, username, highlighted, onEdit, onDelete }: ItemViewProps) {
   const pw = useItemPassword(item, vaultKey);
 
   return (
@@ -211,12 +297,14 @@ function ItemCard({ item, vaultKey, highlighted, onEdit, onDelete }: ItemViewPro
             text={item.title ?? "Untitled"}
             className="font-medium text-theme-text"
           />
+          {username ? <UsernameLine username={username} /> : null}
           {item.description ? (
             <TruncatedText
               text={item.description}
               className="mt-0.5 text-sm text-theme-muted"
             />
           ) : null}
+          {item.url ? <UrlLink url={item.url} /> : null}
         </div>
         <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
           <EditButton onClick={onEdit} />
@@ -247,8 +335,10 @@ function ItemCard({ item, vaultKey, highlighted, onEdit, onDelete }: ItemViewPro
   );
 }
 
-function ItemRow({ item, vaultKey, highlighted, onEdit, onDelete }: ItemViewProps) {
+function ItemRow({ item, vaultKey, username, highlighted, onEdit, onDelete }: ItemViewProps) {
   const pw = useItemPassword(item, vaultKey);
+  // One secondary line only, to keep rows compact.
+  const secondary = [username, item.description].filter(Boolean).join("  ·  ");
 
   return (
     <li
@@ -259,12 +349,13 @@ function ItemRow({ item, vaultKey, highlighted, onEdit, onDelete }: ItemViewProp
     >
       <div className="min-w-0 flex-1">
         <TruncatedText text={item.title ?? "Untitled"} className="font-medium text-theme-text" />
-        {item.description ? (
-          <TruncatedText text={item.description} className="mt-0.5 text-sm text-theme-muted" />
+        {secondary ? (
+          <TruncatedText text={secondary} className="mt-0.5 text-sm text-theme-muted" />
         ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        {item.url ? <UrlLink url={item.url} iconOnly /> : null}
         {pw.available ? (
           <>
             {pw.revealed && !pw.decryptErr ? (
@@ -401,13 +492,21 @@ export default function CategoryItems() {
   const [compLoading, setCompLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<CategoryItem | null>(null);
-  const [form, setForm] = useState({ title: "", password: "", description: "" });
+  const [form, setForm] = useState({
+    title: "",
+    username: "",
+    password: "",
+    url: "",
+    description: "",
+  });
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [clearPassword, setClearPassword] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<CategoryItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [query, setQuery] = useState("");
+  /** Usernames are encrypted at rest but shown by default, so they decrypt on load. */
+  const [usernames, setUsernames] = useState<Map<string, string>>(new Map());
   const [layout, setLayout] = useState<Layout>(readStoredLayout);
   const [sort, setSort] = useState<SortKey>(readStoredSort);
   // Set when arriving from a vault-wide search result, to point out the item that matched.
@@ -429,7 +528,9 @@ export default function CategoryItems() {
     const matched = !normalizedQuery
       ? shieldItems
       : shieldItems.filter((item) =>
-          `${item.title ?? ""} ${item.description ?? ""}`.toLowerCase().includes(normalizedQuery),
+          `${item.title ?? ""} ${usernames.get(item.category_item_id) ?? ""} ${item.description ?? ""} ${item.url ?? ""}`
+            .toLowerCase()
+            .includes(normalizedQuery),
         );
 
     // Copy before sorting: Array.sort mutates, and shieldItems is state.
@@ -449,7 +550,7 @@ export default function CategoryItems() {
       sorted.sort((a, b) => newestFirst(a.created_at, b.created_at));
     }
     return sorted;
-  }, [shieldItems, normalizedQuery, sort]);
+  }, [shieldItems, normalizedQuery, sort, usernames]);
 
   const fetchShieldItems = async () => {
     if (!categoryId) {
@@ -476,6 +577,33 @@ export default function CategoryItems() {
   }, [categoryId]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    // Every setState here is post-await, so this never cascades a synchronous render.
+    (async () => {
+      const next = new Map<string, string>();
+      if (vaultKey) {
+        for (const item of shieldItems) {
+          if (!item.username_cipher || !item.username_iv) continue;
+          try {
+            next.set(
+              item.category_item_id,
+              await decrypt(item.username_cipher, item.username_iv, vaultKey),
+            );
+          } catch {
+            // A username that will not decrypt is simply not shown.
+          }
+        }
+      }
+      if (!cancelled) setUsernames(next);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shieldItems, vaultKey]);
+
+  useEffect(() => {
     if (!highlighted || compLoading) return;
 
     document
@@ -489,14 +617,14 @@ export default function CategoryItems() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingItem(null);
-    setForm({ title: "", password: "", description: "" });
+    setForm({ title: "", username: "", password: "", url: "", description: "" });
     setShowFormPassword(false);
     setClearPassword(false);
   };
 
   const openCreateModal = () => {
     setEditingItem(null);
-    setForm({ title: "", password: "", description: "" });
+    setForm({ title: "", username: "", password: "", url: "", description: "" });
     setShowFormPassword(false);
     setClearPassword(false);
     setIsModalOpen(true);
@@ -506,7 +634,10 @@ export default function CategoryItems() {
     setEditingItem(item);
     setForm({
       title: item.title ?? "",
+      // Prefilled, unlike the password: an empty username field means "remove it".
+      username: usernames.get(item.category_item_id) ?? "",
       password: "",
+      url: item.url ?? "",
       description: item.description ?? "",
     });
     setShowFormPassword(false);
@@ -530,10 +661,27 @@ export default function CategoryItems() {
         password_iv = iv;
       }
 
+      // The username is encrypted the same way the password is; clearing the field
+      // sends explicit nulls so the stored value is removed rather than kept.
+      const trimmedUsername = form.username.trim();
+      let username_cipher: string | null = null;
+      let username_iv: string | null = null;
+
+      if (trimmedUsername !== "") {
+        const { cipher, iv } = await encrypt(trimmedUsername, vaultKey);
+        username_cipher = cipher;
+        username_iv = iv;
+      }
+
+      const url = normalizeUrlInput(form.url);
+
       if (editingItem) {
         const body: Record<string, unknown> = {
           title: trimmedTitle,
           description: form.description,
+          username_cipher,
+          username_iv,
+          url,
         };
         if (clearPassword) {
           // Explicit nulls tell the backend to drop the stored password.
@@ -550,6 +698,9 @@ export default function CategoryItems() {
           title: trimmedTitle,
           password_cipher,
           password_iv,
+          username_cipher,
+          username_iv,
+          url,
           description: form.description,
         });
       }
@@ -574,15 +725,30 @@ export default function CategoryItems() {
     setDeleteConfirmItem(null);
   };
 
+  const restoreItem = async (categoryItemId: string) => {
+    try {
+      await api.post(`/category-items/${categoryItemId}/restore`);
+      await fetchShieldItems();
+      toast.success("Item restored");
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not restore item. Please try again.");
+    }
+  };
+
   const confirmDeleteItem = async () => {
     if (!deleteConfirmItem?.category_item_id) return;
+    const { category_item_id: id, title } = deleteConfirmItem;
 
     setDeleteLoading(true);
     try {
-      await api.delete(`/category-items/${deleteConfirmItem.category_item_id}`);
-      toast.success("Item deleted");
+      await api.delete(`/category-items/${id}`);
       setDeleteConfirmItem(null);
       await fetchShieldItems();
+      // Soft delete, so the obvious next affordance is putting it straight back.
+      toast.success(`Moved “${title ?? "Item"}” to trash`, {
+        action: { label: "Undo", onClick: () => void restoreItem(id) },
+      });
     } catch (err) {
       console.error(err);
       toast.error("Could not delete item. Please try again.");
@@ -704,6 +870,7 @@ export default function CategoryItems() {
                 key={item.category_item_id}
                 item={item}
                 vaultKey={vaultKey}
+                username={usernames.get(item.category_item_id)}
                 highlighted={highlighted === item.category_item_id}
                 onEdit={() => openEditModal(item)}
                 onDelete={() => setDeleteConfirmItem(item)}
@@ -757,26 +924,45 @@ export default function CategoryItems() {
           autoFocus
           required
         />
+        <input
+          id="shield-item-username"
+          type="text"
+          value={form.username}
+          onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
+          className="cmn-field-input"
+          placeholder="Username or email"
+          autoComplete="off"
+        />
         <div className="relative">
           <input
             id="shield-item-password"
             type={showFormPassword ? "text" : "password"}
             value={clearPassword ? "" : form.password}
             onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-            className="cmn-field-input pr-12"
+            className="cmn-field-input pr-20"
             placeholder={editingItem ? "New password (leave blank to keep)" : "Password"}
             autoComplete="new-password"
             disabled={clearPassword}
           />
-          <button
-            type="button"
-            className="icon-button absolute top-1/2 right-1.5 -translate-y-1/2"
-            onClick={() => setShowFormPassword((s) => !s)}
-            aria-label={showFormPassword ? "Hide password" : "Show password"}
-            disabled={clearPassword}
-          >
-            {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
+          <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center">
+            <PasswordGenerator
+              disabled={clearPassword}
+              onUse={(generated) => {
+                setForm((prev) => ({ ...prev, password: generated }));
+                // Reveal it: you should be able to see what you are about to save.
+                setShowFormPassword(true);
+              }}
+            />
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setShowFormPassword((s) => !s)}
+              aria-label={showFormPassword ? "Hide password" : "Show password"}
+              disabled={clearPassword}
+            >
+              {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
         {editingItem && hasEncryptedPassword(editingItem) ? (
           <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-theme-muted transition-colors hover:text-theme-text">
@@ -789,6 +975,16 @@ export default function CategoryItems() {
             Remove the saved password
           </label>
         ) : null}
+        <input
+          id="shield-item-url"
+          type="text"
+          value={form.url}
+          onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))}
+          className="cmn-field-input"
+          placeholder="Website (e.g. github.com)"
+          autoComplete="off"
+          inputMode="url"
+        />
         <textarea
           id="shield-item-description"
           value={form.description}
@@ -802,7 +998,7 @@ export default function CategoryItems() {
       <Modal
         open={deleteConfirmItem !== null}
         title="Delete item"
-        description={`Delete "${deleteConfirmItem?.title ?? "this item"}"? This cannot be undone.`}
+        description={`Move "${deleteConfirmItem?.title ?? "this item"}" to the trash? You can restore it for ${TRASH_RETENTION_DAYS} days.`}
         icon={<Trash className="h-4 w-4" />}
         onClose={closeDeleteModal}
         closeDisabled={deleteLoading}
