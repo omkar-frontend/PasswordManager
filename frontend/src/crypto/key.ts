@@ -15,13 +15,18 @@ export const LEGACY_PBKDF2_ITERATIONS = 100_000;
 export const VAULT_CHECK_PLAINTEXT = "shieldx-vault-check-v1";
 
 /**
- * Derives the AES-GCM vault key. Always non-extractable: the key is only ever handed to
+ * Derives the AES-GCM vault key. Non-extractable by default: the key is handed to
  * WebCrypto or stored as an opaque CryptoKey, never serialised to raw bytes.
+ *
+ * `extractable` is opt-in for exactly one caller — biometric enrolment, which must read the
+ * raw key to wrap it under the authenticator's PRF secret. The extractable handle is used
+ * once and discarded; what gets stored and used afterwards is re-imported non-extractable.
  */
 export async function deriveKey(
   password: string,
   salt: Uint8Array,
   iterations: number = PBKDF2_ITERATIONS,
+  extractable = false,
 ) {
   const enc = new TextEncoder();
 
@@ -42,7 +47,7 @@ export async function deriveKey(
     },
     baseKey,
     { name: "AES-GCM", length: 256 },
-    false,
+    extractable,
     ["encrypt", "decrypt"],
   );
 }
