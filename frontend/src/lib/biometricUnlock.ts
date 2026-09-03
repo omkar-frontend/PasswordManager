@@ -38,8 +38,30 @@ type PrfExtensionResults = {
   prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } };
 };
 
+/**
+ * What this platform calls its biometric, for UI copy only. WebAuthn deliberately does not
+ * expose the modality — the same code path drives Face ID, Touch ID, a fingerprint reader
+ * and Windows Hello — so this is a naming hint, never a capability check.
+ */
+export function biometricLabel(): string {
+  if (typeof navigator === "undefined") return "biometrics";
+
+  const ua = navigator.userAgent;
+  // iPadOS reports as Macintosh; both Apple cases get the same wording anyway.
+  if (/iPhone|iPad|iPod|Macintosh/.test(ua)) return "Face ID or Touch ID";
+  if (/Windows/.test(ua)) return "Windows Hello";
+  if (/Android|Linux/.test(ua)) return "fingerprint";
+  return "biometrics";
+}
+
+/** True on platforms whose biometric is commonly a face scan, for icon choice. */
+export function biometricIsFace(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Macintosh|Windows/.test(navigator.userAgent);
+}
+
 export class BiometricUnsupportedError extends Error {
-  constructor(message = "This device cannot store a fingerprint unlock.") {
+  constructor(message = "This device cannot store a biometric unlock.") {
     super(message);
     this.name = "BiometricUnsupportedError";
   }
@@ -47,7 +69,7 @@ export class BiometricUnsupportedError extends Error {
 
 export class BiometricCancelledError extends Error {
   constructor() {
-    super("Fingerprint unlock was cancelled.");
+    super("Biometric unlock was cancelled.");
     this.name = "BiometricCancelledError";
   }
 }
@@ -191,7 +213,7 @@ async function evaluatePrf(
   const secret = results.prf?.results?.first;
   if (!secret) {
     throw new BiometricUnsupportedError(
-      "This browser cannot derive a key from your fingerprint.",
+      "This browser cannot derive a key from your biometrics.",
     );
   }
   return secret;
@@ -269,7 +291,7 @@ export async function enrolBiometric(
   const created = credential.getClientExtensionResults() as PrfExtensionResults;
   if (created.prf?.enabled === false) {
     throw new BiometricUnsupportedError(
-      "This browser cannot derive a key from your fingerprint.",
+      "This browser cannot derive a key from your biometrics.",
     );
   }
 
@@ -317,7 +339,7 @@ export async function unlockWithBiometric(
   } catch {
     // The wrapping no longer fits: enrolment is stale, so drop it and fall back.
     await disableBiometric(userId);
-    throw new Error("Fingerprint unlock is no longer valid. Use your master password.");
+    throw new Error("Biometric unlock is no longer valid. Use your master password.");
   }
 
   // Re-imported non-extractable: same guarantees as the master-password path.
@@ -334,7 +356,7 @@ export async function unlockWithBiometric(
     await decrypt(record.check_cipher, record.check_iv, key);
   } catch {
     await disableBiometric(userId);
-    throw new Error("Fingerprint unlock is no longer valid. Use your master password.");
+    throw new Error("Biometric unlock is no longer valid. Use your master password.");
   }
 
   return key;

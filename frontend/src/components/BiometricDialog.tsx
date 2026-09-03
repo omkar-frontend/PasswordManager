@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Fingerprint, Loader2, TriangleAlert } from "lucide-react";
+import { Loader2, ScanFace, TriangleAlert } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import type { UserSecurityRow } from "../types/userSecurity";
 import {
+  biometricLabel,
   BiometricCancelledError,
   BiometricUnsupportedError,
   disableBiometric,
@@ -31,6 +32,8 @@ export default function BiometricDialog({
   const [error, setError] = useState("");
 
   const userId = user?.id;
+  // Copy only: WebAuthn does not report which modality was used.
+  const label = biometricLabel();
 
   useEffect(() => {
     if (!open || !userId) return;
@@ -71,12 +74,12 @@ export default function BiometricDialog({
       await enrolBiometric(userId, user?.email ?? "ShieldX vault", password, res.data);
       setEnrolled(true);
       setPassword("");
-      toast.success("Fingerprint unlock enabled on this device");
+      toast.success(`${label} unlock enabled on this device`);
       onChanged();
       onClose();
     } catch (err) {
       console.error(err);
-      if (err instanceof BiometricCancelledError) setError("Fingerprint check was cancelled.");
+      if (err instanceof BiometricCancelledError) setError(`${label} check was cancelled.`);
       else if (err instanceof BiometricUnsupportedError) setError(err.message);
       else setError("Wrong master password.");
     } finally {
@@ -90,7 +93,7 @@ export default function BiometricDialog({
     try {
       await disableBiometric(userId);
       setEnrolled(false);
-      toast.success("Fingerprint unlock removed from this device");
+      toast.success(`${label} unlock removed from this device`);
       onChanged();
       onClose();
     } finally {
@@ -101,9 +104,9 @@ export default function BiometricDialog({
   return (
     <Modal
       open={open}
-      title="Fingerprint unlock"
-      description="Unlock this vault with your device's fingerprint or face instead of typing the master password."
-      icon={<Fingerprint className="h-4 w-4" />}
+      title="Biometric unlock"
+      description={`Unlock this vault with ${label} instead of typing your master password.`}
+      icon={<ScanFace className="h-4 w-4" />}
       onClose={close}
       closeDisabled={busy}
       footer={
@@ -148,11 +151,11 @@ export default function BiometricDialog({
         </div>
       ) : !available ? (
         <p className="text-sm text-theme-muted">
-          This device has no built-in fingerprint or face sensor available to the browser.
+          This device has no built-in biometric sensor available to the browser.
         </p>
       ) : enrolled ? (
         <p className="text-sm text-theme-muted">
-          Fingerprint unlock is on for this device. Turning it off removes the stored key;
+          {label} unlock is on for this device. Turning it off removes the stored key;
           your master password keeps working.
         </p>
       ) : (
@@ -169,7 +172,7 @@ export default function BiometricDialog({
           />
           <p className="flex gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            Anyone whose fingerprint or face this device accepts will be able to open your
+            Anyone this device recognises with {label} will be able to open your
             vault. Enable it only on a device that is yours alone.
           </p>
         </>
