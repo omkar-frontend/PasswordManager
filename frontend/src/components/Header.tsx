@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Fingerprint, Lock, LogOut, Shield, Upload } from "lucide-react";
+import { Download, Lock, LogOut, ScanFace, Shield, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -96,8 +96,8 @@ export default function Header() {
                   onClick={() => setBiometricOpen(true)}
                   disabled={!vaultKey}
                 >
-                  <Fingerprint className="h-4 w-4 text-theme-muted" />
-                  Fingerprint unlock
+                  <ScanFace className="h-4 w-4 text-theme-muted" />
+                  Biometric unlock
                 </button>
               </PopoverClose>
 

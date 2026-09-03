@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import axios from "axios";
 import { Outlet } from "react-router-dom";
-import { Eye, EyeOff, Fingerprint, KeyRound, Loader2, LockKeyhole, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Loader2, LockKeyhole, ScanFace, ShieldAlert } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useVault } from "../context/VaultContext";
@@ -14,6 +14,7 @@ import {
   VAULT_SESSION_MAX_AGE_MS,
 } from "../lib/vaultSession";
 import {
+  biometricLabel,
   BiometricCancelledError,
   isBiometricEnrolled,
   unlockWithBiometric,
@@ -160,7 +161,7 @@ export default function VaultGate() {
         // Cancelling is not an error worth shouting about; the password field is right there.
         setFormError("");
       } else {
-        setFormError(e instanceof Error ? e.message : "Fingerprint unlock failed.");
+        setFormError(e instanceof Error ? e.message : "Biometric unlock failed.");
         setBiometricReady(await isBiometricEnrolled(userId));
       }
     } finally {
@@ -367,12 +368,12 @@ export default function VaultGate() {
                 {busy ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Waiting for fingerprint…
+                    Waiting for confirmation…
                   </>
                 ) : (
                   <>
-                    <Fingerprint className="h-4 w-4" />
-                    Unlock with fingerprint
+                    <ScanFace className="h-4 w-4" />
+                    Unlock with {biometricLabel()}
                   </>
                 )}
               </button>
