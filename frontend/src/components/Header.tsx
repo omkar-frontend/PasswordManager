@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Download, Lock, LogOut, Shield, Upload } from "lucide-react";
+import { Download, Fingerprint, Lock, LogOut, Shield, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./ui/popover";
 import ExportDialog from "./ExportDialog";
 import ImportDialog from "./ImportDialog";
+import BiometricDialog from "./BiometricDialog";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { useVault } from "../context/VaultContext";
@@ -15,6 +16,7 @@ export default function Header() {
   const { vaultKey, lockVault } = useVault();
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [biometricOpen, setBiometricOpen] = useState(false);
 
   const email = user?.email ?? "";
   const initial = email.trim().charAt(0).toUpperCase() || "?";
@@ -87,6 +89,18 @@ export default function Header() {
                 </button>
               </PopoverClose>
 
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-theme-text transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setBiometricOpen(true)}
+                  disabled={!vaultKey}
+                >
+                  <Fingerprint className="h-4 w-4 text-theme-muted" />
+                  Fingerprint unlock
+                </button>
+              </PopoverClose>
+
               <div className="h-px bg-hairline" />
 
               {/* Surfaces the idle auto-lock as something you can also trigger yourself. */}
@@ -117,6 +131,11 @@ export default function Header() {
         </Popover>
       </nav>
 
+      <BiometricDialog
+        open={biometricOpen}
+        onClose={() => setBiometricOpen(false)}
+        onChanged={() => {}}
+      />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <ImportDialog
         open={importOpen}

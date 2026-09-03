@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import axios from "axios";
 import { Outlet } from "react-router-dom";
-import { Eye, EyeOff, KeyRound, Loader2, LockKeyhole, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, KeyRound, Loader2, LockKeyhole, ShieldAlert } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useVault } from "../context/VaultContext";
@@ -13,6 +13,11 @@ import {
   tryRestoreVaultFromSession,
   VAULT_SESSION_MAX_AGE_MS,
 } from "../lib/vaultSession";
+import {
+  BiometricCancelledError,
+  isBiometricEnrolled,
+  unlockWithBiometric,
+} from "../lib/biometricUnlock";
 
 /** Shared frame for the full-height states this gate renders. */
 function GateScreen({ children }: { children: ReactNode }) {
@@ -90,6 +95,7 @@ export default function VaultGate() {
   const [unlockPassword, setUnlockPassword] = useState("");
   const [vaultSessionReady, setVaultSessionReady] = useState(false);
   const [fetchAttempt, setFetchAttempt] = useState(0);
+  const [biometricReady, setBiometricReady] = useState(false);
 
   /** Stores the key when we know the user, and returns the deadline to enforce either way. */
   const persistKey = async (key: CryptoKey): Promise<number> => {
@@ -117,6 +123,65 @@ export default function VaultGate() {
       cancelled = true;
     };
   }, [authLoading, session, fetchAttempt]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    let cancelled = false;
+    isBiometricEnrolled(userId).then((enrolled) => {
+      if (!cancelled) setBiometricReady(enrolled);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
+
+  const runBiometricUnlock = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId || !record) return;
+
+    setFormError("");
+    setBusy(true);
+    try {
+      const key = await unlockWithBiometric(userId, record);
+      if (!key) {
+        setBiometricReady(false);
+        return;
+      }
+      const userIdForSave = session?.user?.id;
+      const expiresAt = userIdForSave
+        ? await saveVaultSessionKey(userIdForSave, key)
+        : Date.now() + VAULT_SESSION_MAX_AGE_MS;
+      setVaultKey(key, expiresAt);
+    } catch (e) {
+      if (e instanceof BiometricCancelledError) {
+        // Cancelling is not an error worth shouting about; the password field is right there.
+        setFormError("");
+      } else {
+        setFormError(e instanceof Error ? e.message : "Fingerprint unlock failed.");
+        setBiometricReady(await isBiometricEnrolled(userId));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [session?.user?.id, record, setVaultKey]);
+
+  /**
+   * Prompt as soon as the unlock screen is the thing being shown, so an enrolled device
+   * needs no click. Fires once per mount: re-firing after a cancel would trap the user in
+   * a loop of OS prompts with no way to reach the password field.
+   */
+  const autoPromptedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoPromptedRef.current) return;
+    if (authLoading || vaultKey || !record || !vaultSessionReady || !biometricReady) return;
+
+    autoPromptedRef.current = true;
+    void runBiometricUnlock();
+  }, [authLoading, vaultKey, record, vaultSessionReady, biometricReady, runBiometricUnlock]);
 
   /** Restore the stored key so a refresh does not re-prompt. */
   useEffect(() => {
@@ -291,22 +356,50 @@ export default function VaultGate() {
               {formError}
             </p>
           ) : null}
+          {biometricReady ? (
+            <>
+              <button
+                type="button"
+                className="button-theme w-full py-2.5"
+                disabled={busy}
+                onClick={() => void runBiometricUnlock()}
+              >
+                {busy ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Waiting for fingerprint…
+                  </>
+                ) : (
+                  <>
+                    <Fingerprint className="h-4 w-4" />
+                    Unlock with fingerprint
+                  </>
+                )}
+              </button>
+              <div className="flex items-center gap-3 py-1">
+                <span className="h-px flex-1 bg-hairline" />
+                <span className="text-xs text-theme-muted">or</span>
+                <span className="h-px flex-1 bg-hairline" />
+              </div>
+            </>
+          ) : null}
+
           <PasswordField
             value={unlockPassword}
             onChange={setUnlockPassword}
             placeholder="Master password"
             autoComplete="current-password"
             onEnter={() => void submitUnlock()}
-            autoFocus
+            autoFocus={!biometricReady}
           />
           <button
             type="button"
-            className="button-theme mt-2 w-full py-2.5"
+            className={biometricReady ? "button-ghost mt-2 w-full py-2.5" : "button-theme mt-2 w-full py-2.5"}
             disabled={busy}
             onClick={() => void submitUnlock()}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {busy ? "Unlocking…" : "Unlock"}
+            {busy && !biometricReady ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {busy && !biometricReady ? "Unlocking…" : "Unlock"}
           </button>
         </div>
       </div>
